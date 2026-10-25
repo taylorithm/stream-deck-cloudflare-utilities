@@ -6,7 +6,7 @@
  * @license MIT
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { WorkerDeploymentStatus } from "../../src/actions/worker-deployment-status";
+import { WorkerDeploymentStatus, WorkerDeploymentStatusKey } from "../../src/actions/worker-deployment-status";
 import { STATUS_COLORS } from "../../src/services/key-image-renderer";
 import { resetPollingCoordinator, getPollingCoordinator } from "../../src/services/polling-coordinator";
 import type { DeploymentStatus } from "../../src/types/cloudflare-workers";
@@ -69,10 +69,10 @@ function decodeSvg(dataUri: string): string {
 }
 
 describe("WorkerDeploymentStatus", () => {
-  let action: WorkerDeploymentStatus;
+  let action: WorkerDeploymentStatusKey;
 
   beforeEach(() => {
-    action = new WorkerDeploymentStatus();
+    action = new WorkerDeploymentStatusKey("key-1");
     vi.mocked(getGlobalSettings).mockReturnValue({ apiToken: "tok", accountId: "acc" });
   });
 
