@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
-  WorkerAnalytics,
+  WorkerAnalytics, WorkerAnalyticsKey,
   metricColor,
   formatMetricValue,
 } from "../../src/actions/worker-analytics";
@@ -146,10 +146,10 @@ describe("key cycling order", () => {
 });
 
 describe("WorkerAnalytics", () => {
-  let action: WorkerAnalytics;
+  let action: WorkerAnalyticsKey;
 
   beforeEach(() => {
-    action = new WorkerAnalytics();
+    action = new WorkerAnalyticsKey("key-1");
     mockGetAnalytics = vi.fn();
     capturedGlobalListener = null;
     vi.mocked(getGlobalSettings).mockReturnValue({ apiToken: "test-token", accountId: "test-account" });
