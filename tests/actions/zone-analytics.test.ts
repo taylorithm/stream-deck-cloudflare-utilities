@@ -57,10 +57,11 @@ vi.mock("../../src/services/cloudflare-zone-analytics-api", async (importOrigina
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function makeMockEvent(settings: Record<string, unknown> = {}) {
+function makeMockEvent(settings: Record<string, unknown> = {}, id = "key-1") {
   return {
     payload: { settings },
     action: {
+      id,
       setImage: vi.fn().mockResolvedValue(undefined),
       setSettings: vi.fn().mockResolvedValue(undefined),
     },
@@ -387,5 +388,89 @@ describe("ZoneAnalytics", () => {
       await capturedGlobalListener!({});
       expect(decodeSvg(ev.action.setImage.mock.calls[0][0])).toContain("Setup");
     });
+  });
+});
+
+describe("ZoneAnalytics with two keys on different zones", () => {
+  const ALPHA = { zoneId: "zone-a", zoneName: "alpha.co", metric: "requests" as const, timeRange: "24h" as const };
+  const BETA = { zoneId: "zone-b", zoneName: "beta.co", metric: "requests" as const, timeRange: "24h" as const };
+
+  let action: ZoneAnalytics;
+
+  beforeEach(() => {
+    action = new ZoneAnalytics();
+    mockGetAnalytics = vi.fn((zoneId: string) =>
+      Promise.resolve(makeMetrics({ requests: zoneId === "zone-a" ? 3000 : 70000 }))
+    );
+    vi.mocked(getGlobalSettings).mockReturnValue({ apiToken: "test-token", accountId: "test-account" });
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    resetPollingCoordinator();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  function lastSvg(ev: ReturnType<typeof makeMockEvent>): string {
+    const calls = ev.action.setImage.mock.calls;
+    return decodeSvg(calls[calls.length - 1][0]);
+  }
+
+  it("should keep each key showing its own zone after both appear", async () => {
+    const a = makeMockEvent(ALPHA, "key-a");
+    const b = makeMockEvent(BETA, "key-b");
+    await action.onWillAppear(a);
+    await action.onWillAppear(b);
+
+    expect(lastSvg(a)).toContain("alpha.co");
+    expect(lastSvg(a)).toContain("3K");
+    expect(lastSvg(b)).toContain("beta.co");
+    expect(lastSvg(b)).toContain("70K");
+  });
+
+  it("should refresh every visible key on a coordinator tick", async () => {
+    const a = makeMockEvent(ALPHA, "key-a");
+    const b = makeMockEvent(BETA, "key-b");
+    await action.onWillAppear(a);
+    await action.onWillAppear(b);
+    a.action.setImage.mockClear();
+    b.action.setImage.mockClear();
+    mockGetAnalytics.mockClear();
+
+    await getPollingCoordinator().tick();
+
+    expect(mockGetAnalytics.mock.calls.map((c) => c[0]).sort()).toEqual(["zone-a", "zone-b"]);
+    expect(lastSvg(a)).toContain("alpha.co");
+    expect(lastSvg(b)).toContain("beta.co");
+  });
+
+  it("should redraw a pressed key with its own zone, not the last fetched one", async () => {
+    const a = makeMockEvent(ALPHA, "key-a");
+    const b = makeMockEvent(BETA, "key-b");
+    await action.onWillAppear(a);
+    await action.onWillAppear(b);
+    a.action.setImage.mockClear();
+
+    await action.onKeyDown(a);
+
+    const svg = lastSvg(a);
+    expect(svg).toContain("alpha.co");
+    expect(svg).not.toContain("beta.co");
+  });
+
+  it("should keep refreshing the other key when one key disappears", async () => {
+    const a = makeMockEvent(ALPHA, "key-a");
+    const b = makeMockEvent(BETA, "key-b");
+    await action.onWillAppear(a);
+    await action.onWillAppear(b);
+    action.onWillDisappear(b);
+    a.action.setImage.mockClear();
+    b.action.setImage.mockClear();
+
+    await getPollingCoordinator().tick();
+
+    expect(a.action.setImage).toHaveBeenCalled();
+    expect(b.action.setImage).not.toHaveBeenCalled();
   });
 });
