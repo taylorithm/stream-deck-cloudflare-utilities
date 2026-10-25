@@ -12,22 +12,22 @@
 import streamDeck, {
   action,
   KeyDownEvent,
-  SingletonAction,
   WillAppearEvent,
   DidReceiveSettingsEvent,
 } from "@elgato/streamdeck";
 
+import { PerKeyAction } from "./per-key-action";
 import { CloudflareApiClient } from "../services/cloudflare-api-client";
 import { renderKeyImage, STATUS_COLORS, LINE1_MAX_CHARS, formatTimeAgo } from "../services/key-image-renderer";
 import { MarqueeController } from "../services/marquee-controller";
 import { getPollingCoordinator } from "../services/polling-coordinator";
 
 /**
- * Cloudflare Status action - displays the current Cloudflare system status
- * on a Stream Deck key. Supports overall status or individual component monitoring.
+ * Cloudflare Status handler for a single Stream Deck key - displays the
+ * current Cloudflare system status. Supports overall status or individual
+ * component monitoring. One instance exists per key (see {@link CloudflareStatus}).
  */
-@action({ UUID: "com.pedrofuentes.cloudflare-utilities.status" })
-export class CloudflareStatus extends SingletonAction<CloudflareStatusSettings> {
+export class CloudflareStatusKey {
   private apiClient: CloudflareApiClient;
 
   /** Consecutive error count for exponential backoff */
@@ -61,8 +61,7 @@ export class CloudflareStatus extends SingletonAction<CloudflareStatusSettings> 
   /** Unsubscribe function for the polling coordinator. */
   private unsubscribeCoordinator: (() => void) | null = null;
 
-  constructor(apiClient?: CloudflareApiClient) {
-    super();
+  constructor(private readonly id: string, apiClient?: CloudflareApiClient) {
     this.apiClient = apiClient ?? new CloudflareApiClient();
   }
 
@@ -70,7 +69,7 @@ export class CloudflareStatus extends SingletonAction<CloudflareStatusSettings> 
    * Called when the action appears on the Stream Deck.
    * Subscribes to the polling coordinator and fetches status immediately.
    */
-  override async onWillAppear(ev: WillAppearEvent<CloudflareStatusSettings>): Promise<void> {
+  async onWillAppear(ev: WillAppearEvent<CloudflareStatusSettings>): Promise<void> {
     this.lastEvent = ev;
 
     // Fetch status immediately
@@ -84,7 +83,7 @@ export class CloudflareStatus extends SingletonAction<CloudflareStatusSettings> 
    * Called when the action disappears from the Stream Deck.
    * Cleans up the coordinator subscription.
    */
-  override onWillDisappear(): void {
+  onWillDisappear(): void {
     if (this.unsubscribeCoordinator) {
       this.unsubscribeCoordinator();
       this.unsubscribeCoordinator = null;
@@ -100,7 +99,7 @@ export class CloudflareStatus extends SingletonAction<CloudflareStatusSettings> 
    * Called when settings change from the Property Inspector.
    * Fetches immediately with new settings.
    */
-  override async onDidReceiveSettings(
+  async onDidReceiveSettings(
     ev: DidReceiveSettingsEvent<CloudflareStatusSettings>
   ): Promise<void> {
     this.lastEvent = ev;
@@ -112,7 +111,7 @@ export class CloudflareStatus extends SingletonAction<CloudflareStatusSettings> 
    * Called when the key is pressed. Triggers an immediate status refresh.
    * Resets backoff so the user can force a retry after errors.
    */
-  override async onKeyDown(ev: KeyDownEvent<CloudflareStatusSettings>): Promise<void> {
+  async onKeyDown(ev: KeyDownEvent<CloudflareStatusSettings>): Promise<void> {
     this.consecutiveErrors = 0;
     this.skipUntil = 0;
     await this.updateStatus(ev);
@@ -160,7 +159,7 @@ export class CloudflareStatus extends SingletonAction<CloudflareStatusSettings> 
         }
         const label = settings.componentName ?? component.name;
         this.marquee.setText(label);
-        const { label: statusLabel, color } = CloudflareStatus.mapComponentStatus(component.status);
+        const { label: statusLabel, color } = CloudflareStatusKey.mapComponentStatus(component.status);
         this.lastCheckTime = Date.now();
         const timeAgo = formatTimeAgo(this.lastCheckTime);
         this.lastRenderParams = { line2: statusLabel, line3: timeAgo, statusColor: color };
@@ -191,7 +190,7 @@ export class CloudflareStatus extends SingletonAction<CloudflareStatusSettings> 
       // Exponential backoff: delay retries using skipUntil timestamp
       this.consecutiveErrors = Math.min(
         this.consecutiveErrors + 1,
-        CloudflareStatus.MAX_BACKOFF_EXPONENT
+        CloudflareStatusKey.MAX_BACKOFF_EXPONENT
       );
       const backoffMs = Math.pow(2, this.consecutiveErrors) * getPollingCoordinator().intervalMs;
       this.skipUntil = Date.now() + backoffMs;
@@ -262,7 +261,7 @@ export class CloudflareStatus extends SingletonAction<CloudflareStatusSettings> 
    * "partial_outage" | "major_outage" | "under_maintenance"
    */
   public renderComponentImage(componentName: string, status: string): string {
-    const { label, color } = CloudflareStatus.mapComponentStatus(status);
+    const { label, color } = CloudflareStatusKey.mapComponentStatus(status);
     return renderKeyImage({
       line1: componentName,
       line2: label,
@@ -297,7 +296,7 @@ export class CloudflareStatus extends SingletonAction<CloudflareStatusSettings> 
     if (this.unsubscribeCoordinator) return; // already subscribed
 
     this.unsubscribeCoordinator = getPollingCoordinator().subscribe(
-      "com.pedrofuentes.cloudflare-utilities.status",
+      `com.pedrofuentes.cloudflare-utilities.status:${this.id}`,
       async () => {
         // Skip if in backoff
         if (Date.now() < this.skipUntil) return;
@@ -314,7 +313,7 @@ export class CloudflareStatus extends SingletonAction<CloudflareStatusSettings> 
   private startMarqueeIfNeeded(): void {
     if (this.marquee.needsAnimation() && this.lastRenderParams) {
       if (!this.marqueeInterval) {
-        this.marqueeInterval = setInterval(() => this.onMarqueeTick(), CloudflareStatus.MARQUEE_INTERVAL_MS);
+        this.marqueeInterval = setInterval(() => this.onMarqueeTick(), CloudflareStatusKey.MARQUEE_INTERVAL_MS);
       }
     } else {
       this.stopMarqueeTimer();
@@ -350,6 +349,25 @@ export class CloudflareStatus extends SingletonAction<CloudflareStatusSettings> 
         statusColor: this.lastRenderParams.statusColor,
       })
     );
+  }
+}
+
+/**
+ * Cloudflare Status action. The SDK creates a single instance for all keys of
+ * this type, so events are routed to a {@link CloudflareStatusKey} per key.
+ */
+@action({ UUID: "com.pedrofuentes.cloudflare-utilities.status" })
+export class CloudflareStatus extends PerKeyAction<CloudflareStatusSettings, CloudflareStatusKey> {
+  private readonly apiClient: CloudflareApiClient;
+
+  constructor(apiClient?: CloudflareApiClient) {
+    super();
+    // One client is shared by all keys; it holds no per-key state.
+    this.apiClient = apiClient ?? new CloudflareApiClient();
+  }
+
+  protected createHandler(id: string): CloudflareStatusKey {
+    return new CloudflareStatusKey(id, this.apiClient);
   }
 }
 
