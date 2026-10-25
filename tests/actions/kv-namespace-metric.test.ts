@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
-  KvNamespaceMetric,
+  KvNamespaceMetric, KvNamespaceMetricKey,
   truncateNamespaceName,
   metricColor,
   formatMetricValue,
@@ -125,10 +125,10 @@ describe("key cycling order", () => {
 });
 
 describe("KvNamespaceMetric", () => {
-  let action: KvNamespaceMetric;
+  let action: KvNamespaceMetricKey;
 
   beforeEach(() => {
-    action = new KvNamespaceMetric();
+    action = new KvNamespaceMetricKey("key-1");
     mockGetAnalytics = vi.fn();
     capturedGlobalListener = null;
     vi.mocked(getGlobalSettings).mockReturnValue({ apiToken: "test-token", accountId: "test-account" });
