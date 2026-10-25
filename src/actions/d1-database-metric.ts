@@ -11,11 +11,11 @@ import streamDeck, {
   action,
   DidReceiveSettingsEvent,
   KeyDownEvent,
-  SingletonAction,
   WillAppearEvent,
   WillDisappearEvent,
 } from "@elgato/streamdeck";
 
+import { PerKeyAction } from "./per-key-action";
 import { CloudflareD1Api } from "../services/cloudflare-d1-api";
 import { formatCompactNumber, RateLimitError } from "../services/cloudflare-ai-gateway-api";
 import { formatBytes } from "../services/cloudflare-zone-analytics-api";
@@ -83,8 +83,7 @@ export function formatMetricValue(
   }
 }
 
-@action({ UUID: "com.pedrofuentes.cloudflare-utilities.d1-database-metric" })
-export class D1DatabaseMetric extends SingletonAction<D1MetricSettings> {
+export class D1DatabaseMetricKey {
   private apiClient: CloudflareD1Api | null = null;
   private fetchGeneration = 0;
   private lastMetrics: D1Metrics | null = null;
@@ -102,7 +101,9 @@ export class D1DatabaseMetric extends SingletonAction<D1MetricSettings> {
   private isErrorState = false;
   private skipUntil = 0;
 
-  override async onWillAppear(ev: WillAppearEvent<D1MetricSettings>): Promise<void> {
+  constructor(private readonly id: string) {}
+
+  async onWillAppear(ev: WillAppearEvent<D1MetricSettings>): Promise<void> {
     this.lastEvent = ev;
     this.subscribeToGlobalSettings();
     this.subscribeToCoordinator();
@@ -128,7 +129,7 @@ export class D1DatabaseMetric extends SingletonAction<D1MetricSettings> {
     await this.updateMetrics(ev);
   }
 
-  override async onDidReceiveSettings(ev: DidReceiveSettingsEvent<D1MetricSettings>): Promise<void> {
+  async onDidReceiveSettings(ev: DidReceiveSettingsEvent<D1MetricSettings>): Promise<void> {
     this.lastEvent = ev;
     const settings = ev.payload.settings;
     const global = getGlobalSettings();
@@ -166,7 +167,7 @@ export class D1DatabaseMetric extends SingletonAction<D1MetricSettings> {
     await this.updateMetrics(ev);
   }
 
-  override onWillDisappear(_ev: WillDisappearEvent<D1MetricSettings>): void {
+  onWillDisappear(_ev: WillDisappearEvent<D1MetricSettings>): void {
     if (this.unsubscribeCoordinator) { this.unsubscribeCoordinator(); this.unsubscribeCoordinator = null; }
     this.stopMarqueeTimer();
     this.apiClient = null;
@@ -183,7 +184,7 @@ export class D1DatabaseMetric extends SingletonAction<D1MetricSettings> {
     if (this.unsubscribeGlobal) { this.unsubscribeGlobal(); this.unsubscribeGlobal = null; }
   }
 
-  override async onKeyDown(ev: KeyDownEvent<D1MetricSettings>): Promise<void> {
+  async onKeyDown(ev: KeyDownEvent<D1MetricSettings>): Promise<void> {
     const settings = ev.payload.settings;
     const global = getGlobalSettings();
     if (!this.hasRequiredSettings(settings, global)) return;
@@ -266,7 +267,7 @@ export class D1DatabaseMetric extends SingletonAction<D1MetricSettings> {
 
   private subscribeToCoordinator(): void {
     if (this.unsubscribeCoordinator) return;
-    this.unsubscribeCoordinator = getPollingCoordinator().subscribe("d1-database-metric", () => this.onCoordinatorTick());
+    this.unsubscribeCoordinator = getPollingCoordinator().subscribe(`d1-database-metric:${this.id}`, () => this.onCoordinatorTick());
   }
 
   private async onCoordinatorTick(): Promise<void> {
@@ -277,7 +278,7 @@ export class D1DatabaseMetric extends SingletonAction<D1MetricSettings> {
 
   private startMarqueeIfNeeded(): void {
     if (this.marquee.needsAnimation() && this.lastMetrics) {
-      if (!this.marqueeInterval) this.marqueeInterval = setInterval(() => this.onMarqueeTick(), D1DatabaseMetric.MARQUEE_INTERVAL_MS);
+      if (!this.marqueeInterval) this.marqueeInterval = setInterval(() => this.onMarqueeTick(), D1DatabaseMetricKey.MARQUEE_INTERVAL_MS);
     } else { this.stopMarqueeTimer(); }
   }
 
@@ -313,5 +314,16 @@ export class D1DatabaseMetric extends SingletonAction<D1MetricSettings> {
       this.apiClient = new CloudflareD1Api(global.apiToken!, global.accountId!);
       await this.updateMetrics(ev);
     });
+  }
+}
+
+/**
+ * D1DatabaseMetric action. The SDK creates a single instance for all keys of this
+ * type, so events are routed to a {@link D1DatabaseMetricKey} per key.
+ */
+@action({ UUID: "com.pedrofuentes.cloudflare-utilities.d1-database-metric" })
+export class D1DatabaseMetric extends PerKeyAction<D1MetricSettings, D1DatabaseMetricKey> {
+  protected createHandler(id: string): D1DatabaseMetricKey {
+    return new D1DatabaseMetricKey(id);
   }
 }
