@@ -6,7 +6,7 @@
  * @license MIT
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { CloudflareStatus } from "../../src/actions/cloudflare-status";
+import { CloudflareStatus, CloudflareStatusKey } from "../../src/actions/cloudflare-status";
 import { formatTimeAgo } from "../../src/services/key-image-renderer";
 import { CloudflareApiClient } from "../../src/services/cloudflare-api-client";
 import { STATUS_COLORS } from "../../src/services/key-image-renderer";
@@ -49,10 +49,10 @@ function decodeSvg(dataUri: string): string {
 
 describe("CloudflareStatus", () => {
   describe("renderStatusImage", () => {
-    let action: CloudflareStatus;
+    let action: CloudflareStatusKey;
 
     beforeEach(() => {
-      action = new CloudflareStatus();
+      action = new CloudflareStatusKey("key-1");
     });
 
     it("should return a data URI for none indicator", () => {
@@ -133,7 +133,7 @@ describe("CloudflareStatus", () => {
         }),
       } as unknown as CloudflareApiClient;
 
-      const action = new CloudflareStatus(mockClient);
+      const action = new CloudflareStatusKey("key-1", mockClient);
       const ev = makeMockEvent({ refreshIntervalSeconds: 120 });
 
       await action.onWillAppear(ev);
@@ -154,7 +154,7 @@ describe("CloudflareStatus", () => {
         getSystemStatus: vi.fn().mockRejectedValue(new Error("API down")),
       } as unknown as CloudflareApiClient;
 
-      const action = new CloudflareStatus(mockClient);
+      const action = new CloudflareStatusKey("key-1", mockClient);
       const ev = makeMockEvent({});
 
       await action.onWillAppear(ev);
@@ -169,7 +169,7 @@ describe("CloudflareStatus", () => {
 
   describe("onWillDisappear", () => {
     it("should clean up interval without error", () => {
-      const action = new CloudflareStatus();
+      const action = new CloudflareStatusKey("key-1");
       expect(() => action.onWillDisappear()).not.toThrow();
     });
   });
@@ -187,7 +187,7 @@ describe("CloudflareStatus", () => {
         }),
       } as unknown as CloudflareApiClient;
 
-      const action = new CloudflareStatus(mockClient);
+      const action = new CloudflareStatusKey("key-1", mockClient);
       const ev = makeMockEvent({});
 
       await action.onKeyDown(ev);
@@ -201,7 +201,7 @@ describe("CloudflareStatus", () => {
         getSystemStatus: vi.fn().mockRejectedValue(new Error("Network")),
       } as unknown as CloudflareApiClient;
 
-      const action = new CloudflareStatus(mockClient);
+      const action = new CloudflareStatusKey("key-1", mockClient);
       const ev = makeMockEvent({});
 
       await action.onKeyDown(ev);
@@ -215,53 +215,53 @@ describe("CloudflareStatus", () => {
 
   describe("mapComponentStatus", () => {
     it("should map operational to OK/green", () => {
-      const result = CloudflareStatus.mapComponentStatus("operational");
+      const result = CloudflareStatusKey.mapComponentStatus("operational");
       expect(result.label).toBe("OK");
       expect(result.color).toBe(STATUS_COLORS.green);
     });
 
     it("should map degraded_performance to Degraded/amber", () => {
-      const result = CloudflareStatus.mapComponentStatus("degraded_performance");
+      const result = CloudflareStatusKey.mapComponentStatus("degraded_performance");
       expect(result.label).toBe("Degraded");
       expect(result.color).toBe(STATUS_COLORS.amber);
     });
 
     it("should map partial_outage to Partial/amber", () => {
-      const result = CloudflareStatus.mapComponentStatus("partial_outage");
+      const result = CloudflareStatusKey.mapComponentStatus("partial_outage");
       expect(result.label).toBe("Partial");
       expect(result.color).toBe(STATUS_COLORS.amber);
     });
 
     it("should map major_outage to Outage/red", () => {
-      const result = CloudflareStatus.mapComponentStatus("major_outage");
+      const result = CloudflareStatusKey.mapComponentStatus("major_outage");
       expect(result.label).toBe("Outage");
       expect(result.color).toBe(STATUS_COLORS.red);
     });
 
     it("should map under_maintenance to Maint/blue", () => {
-      const result = CloudflareStatus.mapComponentStatus("under_maintenance");
+      const result = CloudflareStatusKey.mapComponentStatus("under_maintenance");
       expect(result.label).toBe("Maint");
       expect(result.color).toBe(STATUS_COLORS.blue);
     });
 
     it("should map unknown status to N/A/gray", () => {
-      const result = CloudflareStatus.mapComponentStatus("unknown_status");
+      const result = CloudflareStatusKey.mapComponentStatus("unknown_status");
       expect(result.label).toBe("N/A");
       expect(result.color).toBe(STATUS_COLORS.gray);
     });
 
     it("should map empty string to N/A/gray", () => {
-      const result = CloudflareStatus.mapComponentStatus("");
+      const result = CloudflareStatusKey.mapComponentStatus("");
       expect(result.label).toBe("N/A");
       expect(result.color).toBe(STATUS_COLORS.gray);
     });
   });
 
   describe("renderComponentImage", () => {
-    let action: CloudflareStatus;
+    let action: CloudflareStatusKey;
 
     beforeEach(() => {
-      action = new CloudflareStatus();
+      action = new CloudflareStatusKey("key-1");
     });
 
     it("should return a data URI", () => {
@@ -319,7 +319,7 @@ describe("CloudflareStatus", () => {
         getSystemStatus: vi.fn(),
       } as unknown as CloudflareApiClient;
 
-      const action = new CloudflareStatus(mockClient);
+      const action = new CloudflareStatusKey("key-1", mockClient);
       const ev = makeMockEvent({ componentId: "cdn-2", componentName: "CDN/Cache" });
 
       await action.onWillAppear(ev);
@@ -345,7 +345,7 @@ describe("CloudflareStatus", () => {
         }),
       } as unknown as CloudflareApiClient;
 
-      const action = new CloudflareStatus(mockClient);
+      const action = new CloudflareStatusKey("key-1", mockClient);
       const ev = makeMockEvent({});
 
       await action.onWillAppear(ev);
@@ -363,7 +363,7 @@ describe("CloudflareStatus", () => {
         getComponents: vi.fn().mockResolvedValue(MOCK_COMPONENTS),
       } as unknown as CloudflareApiClient;
 
-      const action = new CloudflareStatus(mockClient);
+      const action = new CloudflareStatusKey("key-1", mockClient);
       const ev = makeMockEvent({ componentId: "nonexistent", componentName: "Gone" });
 
       await action.onWillAppear(ev);
@@ -383,7 +383,7 @@ describe("CloudflareStatus", () => {
         getComponents: vi.fn().mockRejectedValue(new Error("Network")),
       } as unknown as CloudflareApiClient;
 
-      const action = new CloudflareStatus(mockClient);
+      const action = new CloudflareStatusKey("key-1", mockClient);
       const ev = makeMockEvent({ componentId: "dns-1", componentName: "DNS" });
 
       await action.onWillAppear(ev);
@@ -403,7 +403,7 @@ describe("CloudflareStatus", () => {
         getComponents: vi.fn().mockRejectedValue(new Error("fail")),
       } as unknown as CloudflareApiClient;
 
-      const action = new CloudflareStatus(mockClient);
+      const action = new CloudflareStatusKey("key-1", mockClient);
       const ev = makeMockEvent({ componentId: "dns-1" }); // no componentName
 
       await action.onWillAppear(ev);
@@ -419,7 +419,7 @@ describe("CloudflareStatus", () => {
         getComponents: vi.fn().mockResolvedValue(MOCK_COMPONENTS),
       } as unknown as CloudflareApiClient;
 
-      const action = new CloudflareStatus(mockClient);
+      const action = new CloudflareStatusKey("key-1", mockClient);
       const ev = makeMockEvent({ componentId: "wrk-3", componentName: "Workers" });
 
       await action.onKeyDown(ev);
@@ -435,7 +435,7 @@ describe("CloudflareStatus", () => {
         getComponents: vi.fn().mockResolvedValue(MOCK_COMPONENTS),
       } as unknown as CloudflareApiClient;
 
-      const action = new CloudflareStatus(mockClient);
+      const action = new CloudflareStatusKey("key-1", mockClient);
       const ev = makeMockEvent({ componentId: "dns-1", componentName: "My DNS" });
 
       await action.onKeyDown(ev);
@@ -461,7 +461,7 @@ describe("CloudflareStatus", () => {
         }),
       } as unknown as CloudflareApiClient;
 
-      const action = new CloudflareStatus(mockClient);
+      const action = new CloudflareStatusKey("key-1", mockClient);
       const ev = makeMockEvent({});
 
       await (action as any).onDidReceiveSettings(ev);
@@ -483,7 +483,7 @@ describe("CloudflareStatus", () => {
         getSystemStatus: vi.fn(),
       } as unknown as CloudflareApiClient;
 
-      const action = new CloudflareStatus(mockClient);
+      const action = new CloudflareStatusKey("key-1", mockClient);
       const ev = makeMockEvent({ componentId: "dns-1", componentName: "DNS" });
 
       await (action as any).onDidReceiveSettings(ev);
@@ -516,7 +516,7 @@ describe("CloudflareStatus", () => {
           .mockResolvedValue({ indicator: "none", description: "OK" }),
       } as unknown as CloudflareApiClient;
 
-      const action = new CloudflareStatus(mockClient);
+      const action = new CloudflareStatusKey("key-1", mockClient);
       const ev = makeMockEvent({});
 
       // Initial call — fails (consecutiveErrors = 1, backoff = 2 * 10s = 20s)
@@ -542,7 +542,7 @@ describe("CloudflareStatus", () => {
         getSystemStatus: vi.fn().mockRejectedValue(new Error("403")),
       } as unknown as CloudflareApiClient;
 
-      const action = new CloudflareStatus(mockClient);
+      const action = new CloudflareStatusKey("key-1", mockClient);
       const ev = makeMockEvent({});
 
       const coordinator = getPollingCoordinator();
@@ -575,7 +575,7 @@ describe("CloudflareStatus", () => {
         }),
       } as unknown as CloudflareApiClient;
 
-      const action = new CloudflareStatus(mockClient);
+      const action = new CloudflareStatusKey("key-1", mockClient);
       const ev = makeMockEvent({});
 
       const coordinator = getPollingCoordinator();
@@ -625,7 +625,7 @@ describe("CloudflareStatus", () => {
           .mockResolvedValue({ indicator: "none", description: "OK" }),
       } as unknown as CloudflareApiClient;
 
-      const action = new CloudflareStatus(mockClient);
+      const action = new CloudflareStatusKey("key-1", mockClient);
       const ev = makeMockEvent({});
 
       // Initial: error #1, backoff = 2 * 10s = 20s
@@ -664,7 +664,7 @@ describe("CloudflareStatus", () => {
           .mockResolvedValue({ indicator: "none", description: "OK" }),
       } as unknown as CloudflareApiClient;
 
-      const action = new CloudflareStatus(mockClient);
+      const action = new CloudflareStatusKey("key-1", mockClient);
       const ev = makeMockEvent({});
 
       // Initial: error #1, backoff = 2 * 10s = 20s
@@ -705,7 +705,7 @@ describe("CloudflareStatus", () => {
         getComponents: vi.fn().mockResolvedValue(COMPONENTS),
       } as unknown as CloudflareApiClient;
 
-      const action = new CloudflareStatus(mockClient);
+      const action = new CloudflareStatusKey("key-1", mockClient);
       const ev = makeMockEvent({ componentId: "dns-1", componentName: "DNS" });
 
       await action.onWillAppear(ev);
@@ -732,7 +732,7 @@ describe("CloudflareStatus", () => {
         getComponents: vi.fn().mockResolvedValue(COMPONENTS),
       } as unknown as CloudflareApiClient;
 
-      const action = new CloudflareStatus(mockClient);
+      const action = new CloudflareStatusKey("key-1", mockClient);
       const ev = makeMockEvent({ componentId: "auth-1", componentName: "Access Authentication & SSO" });
 
       await action.onWillAppear(ev);
@@ -764,7 +764,7 @@ describe("CloudflareStatus", () => {
         }),
       } as unknown as CloudflareApiClient;
 
-      const action = new CloudflareStatus(mockClient);
+      const action = new CloudflareStatusKey("key-1", mockClient);
       const ev = makeMockEvent({});
 
       await action.onWillAppear(ev);
@@ -789,7 +789,7 @@ describe("CloudflareStatus", () => {
         getComponents: vi.fn().mockResolvedValue(COMPONENTS),
       } as unknown as CloudflareApiClient;
 
-      const action = new CloudflareStatus(mockClient);
+      const action = new CloudflareStatusKey("key-1", mockClient);
       const ev = makeMockEvent({ componentId: "auth-1", componentName: "Access Authentication & SSO" });
 
       await action.onWillAppear(ev);
