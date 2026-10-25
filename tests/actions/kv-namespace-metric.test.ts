@@ -54,10 +54,11 @@ vi.mock("../../src/services/cloudflare-kv-api", async (importOriginal) => {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function makeMockEvent(settings: Record<string, unknown> = {}) {
+function makeMockEvent(settings: Record<string, unknown> = {}, id = "key-1") {
   return {
     payload: { settings },
     action: {
+      id,
       setImage: vi.fn().mockResolvedValue(undefined),
       setSettings: vi.fn().mockResolvedValue(undefined),
     },
@@ -376,5 +377,87 @@ describe("KvNamespaceMetric", () => {
       await capturedGlobalListener!({});
       expect(decodeSvg(ev.action.setImage.mock.calls[0][0])).toContain("Setup");
     });
+  });
+});
+
+describe("KvNamespaceMetric with two keys on different namespaces", () => {
+  const ALPHA = { namespaceId: "ns-a", namespaceName: "alpha-kv", metric: "reads" as const, timeRange: "24h" as const };
+  const BETA = { namespaceId: "ns-b", namespaceName: "beta-kv", metric: "reads" as const, timeRange: "24h" as const };
+
+  let action: KvNamespaceMetric;
+
+  beforeEach(() => {
+    action = new KvNamespaceMetric();
+    mockGetAnalytics = vi.fn((...args: unknown[]) => Promise.resolve(makeMetrics()));
+    vi.mocked(getGlobalSettings).mockReturnValue({ apiToken: "test-token", accountId: "test-account" });
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    resetPollingCoordinator();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  function lastSvg(ev: ReturnType<typeof makeMockEvent>): string {
+    const calls = ev.action.setImage.mock.calls;
+    return decodeSvg(calls[calls.length - 1][0]);
+  }
+
+  it("should keep each key showing its own namespace after both appear", async () => {
+    const a = makeMockEvent(ALPHA, "key-a");
+    const b = makeMockEvent(BETA, "key-b");
+    await action.onWillAppear(a);
+    await action.onWillAppear(b);
+
+    expect(lastSvg(a)).toContain("alpha-kv");
+    expect(lastSvg(a)).not.toContain("beta-kv");
+    expect(lastSvg(b)).toContain("beta-kv");
+    expect(lastSvg(b)).not.toContain("alpha-kv");
+  });
+
+  it("should refresh every visible key on a coordinator tick", async () => {
+    const a = makeMockEvent(ALPHA, "key-a");
+    const b = makeMockEvent(BETA, "key-b");
+    await action.onWillAppear(a);
+    await action.onWillAppear(b);
+    a.action.setImage.mockClear();
+    b.action.setImage.mockClear();
+    mockGetAnalytics.mockClear();
+
+    await getPollingCoordinator().tick();
+
+    expect(mockGetAnalytics.mock.calls.map((c) => c[0]).sort()).toEqual(["ns-a", "ns-b"]);
+    expect(lastSvg(a)).toContain("alpha-kv");
+    expect(lastSvg(b)).toContain("beta-kv");
+  });
+
+  it("should redraw a pressed key with its own namespace, not the last fetched one", async () => {
+    const a = makeMockEvent(ALPHA, "key-a");
+    const b = makeMockEvent(BETA, "key-b");
+    await action.onWillAppear(a);
+    await action.onWillAppear(b);
+    a.action.setImage.mockClear();
+
+    await action.onKeyDown(a);
+
+    const svg = lastSvg(a);
+    expect(svg).toContain("alpha-kv");
+    expect(svg).not.toContain("beta-kv");
+  });
+
+  it("should keep refreshing the other key when one key disappears", async () => {
+    const a = makeMockEvent(ALPHA, "key-a");
+    const b = makeMockEvent(BETA, "key-b");
+    await action.onWillAppear(a);
+    await action.onWillAppear(b);
+    action.onWillDisappear(b);
+    a.action.setImage.mockClear();
+    b.action.setImage.mockClear();
+
+    await getPollingCoordinator().tick();
+
+    expect(a.action.setImage).toHaveBeenCalled();
+    expect(b.action.setImage).not.toHaveBeenCalled();
   });
 });
