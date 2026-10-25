@@ -8,6 +8,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   ZoneAnalytics,
+  ZoneAnalyticsKey,
   truncateZoneName,
   metricColor,
   formatMetricValue,
@@ -137,10 +138,10 @@ describe("key cycling order", () => {
 });
 
 describe("ZoneAnalytics", () => {
-  let action: ZoneAnalytics;
+  let action: ZoneAnalyticsKey;
 
   beforeEach(() => {
-    action = new ZoneAnalytics();
+    action = new ZoneAnalyticsKey("key-1");
     mockGetAnalytics = vi.fn();
     capturedGlobalListener = null;
     vi.mocked(getGlobalSettings).mockReturnValue({ apiToken: "test-token", accountId: "test-account" });
