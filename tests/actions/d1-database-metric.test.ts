@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
-  D1DatabaseMetric,
+  D1DatabaseMetric, D1DatabaseMetricKey,
   truncateDbName,
   metricColor,
   formatMetricValue,
@@ -145,10 +145,10 @@ describe("key cycling order", () => {
 });
 
 describe("D1DatabaseMetric", () => {
-  let action: D1DatabaseMetric;
+  let action: D1DatabaseMetricKey;
 
   beforeEach(() => {
-    action = new D1DatabaseMetric();
+    action = new D1DatabaseMetricKey("key-1");
     mockGetAnalytics = vi.fn();
     capturedGlobalListener = null;
     vi.mocked(getGlobalSettings).mockReturnValue({ apiToken: "test-token", accountId: "test-account" });
