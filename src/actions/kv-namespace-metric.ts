@@ -11,11 +11,11 @@ import streamDeck, {
   action,
   DidReceiveSettingsEvent,
   KeyDownEvent,
-  SingletonAction,
   WillAppearEvent,
   WillDisappearEvent,
 } from "@elgato/streamdeck";
 
+import { PerKeyAction } from "./per-key-action";
 import { CloudflareKvApi } from "../services/cloudflare-kv-api";
 import { formatCompactNumber, RateLimitError } from "../services/cloudflare-ai-gateway-api";
 import { getGlobalSettings, onGlobalSettingsChanged } from "../services/global-settings-store";
@@ -78,8 +78,7 @@ export function formatMetricValue(
   }
 }
 
-@action({ UUID: "com.pedrofuentes.cloudflare-utilities.kv-namespace-metric" })
-export class KvNamespaceMetric extends SingletonAction<KvMetricSettings> {
+export class KvNamespaceMetricKey {
   private apiClient: CloudflareKvApi | null = null;
   private fetchGeneration = 0;
   private lastMetrics: KvMetrics | null = null;
@@ -96,7 +95,9 @@ export class KvNamespaceMetric extends SingletonAction<KvMetricSettings> {
   private isErrorState = false;
   private skipUntil = 0;
 
-  override async onWillAppear(ev: WillAppearEvent<KvMetricSettings>): Promise<void> {
+  constructor(private readonly id: string) {}
+
+  async onWillAppear(ev: WillAppearEvent<KvMetricSettings>): Promise<void> {
     this.lastEvent = ev;
     this.subscribeToGlobalSettings();
     this.subscribeToCoordinator();
@@ -122,7 +123,7 @@ export class KvNamespaceMetric extends SingletonAction<KvMetricSettings> {
     await this.updateMetrics(ev);
   }
 
-  override async onDidReceiveSettings(ev: DidReceiveSettingsEvent<KvMetricSettings>): Promise<void> {
+  async onDidReceiveSettings(ev: DidReceiveSettingsEvent<KvMetricSettings>): Promise<void> {
     this.lastEvent = ev;
     const settings = ev.payload.settings;
     const global = getGlobalSettings();
@@ -160,7 +161,7 @@ export class KvNamespaceMetric extends SingletonAction<KvMetricSettings> {
     await this.updateMetrics(ev);
   }
 
-  override onWillDisappear(_ev: WillDisappearEvent<KvMetricSettings>): void {
+  onWillDisappear(_ev: WillDisappearEvent<KvMetricSettings>): void {
     if (this.unsubscribeCoordinator) { this.unsubscribeCoordinator(); this.unsubscribeCoordinator = null; }
     this.stopMarqueeTimer();
     this.apiClient = null;
@@ -176,7 +177,7 @@ export class KvNamespaceMetric extends SingletonAction<KvMetricSettings> {
     if (this.unsubscribeGlobal) { this.unsubscribeGlobal(); this.unsubscribeGlobal = null; }
   }
 
-  override async onKeyDown(ev: KeyDownEvent<KvMetricSettings>): Promise<void> {
+  async onKeyDown(ev: KeyDownEvent<KvMetricSettings>): Promise<void> {
     const settings = ev.payload.settings;
     const global = getGlobalSettings();
     if (!this.hasRequiredSettings(settings, global)) return;
@@ -258,7 +259,7 @@ export class KvNamespaceMetric extends SingletonAction<KvMetricSettings> {
 
   private subscribeToCoordinator(): void {
     if (this.unsubscribeCoordinator) return;
-    this.unsubscribeCoordinator = getPollingCoordinator().subscribe("kv-namespace-metric", () => this.onCoordinatorTick());
+    this.unsubscribeCoordinator = getPollingCoordinator().subscribe(`kv-namespace-metric:${this.id}`, () => this.onCoordinatorTick());
   }
 
   private async onCoordinatorTick(): Promise<void> {
@@ -269,7 +270,7 @@ export class KvNamespaceMetric extends SingletonAction<KvMetricSettings> {
 
   private startMarqueeIfNeeded(): void {
     if (this.marquee.needsAnimation() && this.lastMetrics) {
-      if (!this.marqueeInterval) this.marqueeInterval = setInterval(() => this.onMarqueeTick(), KvNamespaceMetric.MARQUEE_INTERVAL_MS);
+      if (!this.marqueeInterval) this.marqueeInterval = setInterval(() => this.onMarqueeTick(), KvNamespaceMetricKey.MARQUEE_INTERVAL_MS);
     } else { this.stopMarqueeTimer(); }
   }
 
@@ -305,5 +306,16 @@ export class KvNamespaceMetric extends SingletonAction<KvMetricSettings> {
       this.apiClient = new CloudflareKvApi(global.apiToken!, global.accountId!);
       await this.updateMetrics(ev);
     });
+  }
+}
+
+/**
+ * KvNamespaceMetric action. The SDK creates a single instance for all keys of this
+ * type, so events are routed to a {@link KvNamespaceMetricKey} per key.
+ */
+@action({ UUID: "com.pedrofuentes.cloudflare-utilities.kv-namespace-metric" })
+export class KvNamespaceMetric extends PerKeyAction<KvMetricSettings, KvNamespaceMetricKey> {
+  protected createHandler(id: string): KvNamespaceMetricKey {
+    return new KvNamespaceMetricKey(id);
   }
 }
