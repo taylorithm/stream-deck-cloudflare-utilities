@@ -11,7 +11,6 @@ import streamDeck, {
   action,
   DidReceiveSettingsEvent,
   KeyDownEvent,
-  SingletonAction,
   WillAppearEvent,
   WillDisappearEvent,
 } from "@elgato/streamdeck";
@@ -21,6 +20,7 @@ import {
   truncateDomainName,
   type DnsRecordStatus,
 } from "../services/cloudflare-dns-api";
+import { PerKeyAction } from "./per-key-action";
 import { getGlobalSettings, onGlobalSettingsChanged } from "../services/global-settings-store";
 import { renderKeyImage, renderPlaceholderImage, renderSetupImage, STATUS_COLORS, LINE1_MAX_CHARS, LINE2_MAX_CHARS, LINE3_MAX_CHARS, truncateForDisplay } from "../services/key-image-renderer";
 import { MarqueeController } from "../services/marquee-controller";
@@ -35,8 +35,7 @@ import type { DnsRecordSettings } from "../types/cloudflare-dns";
  * - 🔵 Blue   → DNS-only (not proxied)
  * - 🔴 Red    → record missing or error
  */
-@action({ UUID: "com.pedrofuentes.cloudflare-utilities.dns-record-monitor" })
-export class DnsRecordMonitor extends SingletonAction<DnsRecordSettings> {
+export class DnsRecordMonitorKey {
   private apiClient: CloudflareDnsApi | null = null;
   private lastRecord: DnsRecordStatus | null = null;
   private lastEvent: WillAppearEvent<DnsRecordSettings> | DidReceiveSettingsEvent<DnsRecordSettings> | null = null;
@@ -54,7 +53,9 @@ export class DnsRecordMonitor extends SingletonAction<DnsRecordSettings> {
   private marqueeInterval: ReturnType<typeof setInterval> | null = null;
   private isErrorState = false;
 
-  override async onWillAppear(ev: WillAppearEvent<DnsRecordSettings>): Promise<void> {
+  constructor(private readonly id: string) {}
+
+  async onWillAppear(ev: WillAppearEvent<DnsRecordSettings>): Promise<void> {
     this.lastEvent = ev;
     this.subscribeToGlobalSettings();
     this.subscribeToCoordinator();
@@ -78,7 +79,7 @@ export class DnsRecordMonitor extends SingletonAction<DnsRecordSettings> {
     await this.updateRecord(ev);
   }
 
-  override async onDidReceiveSettings(ev: DidReceiveSettingsEvent<DnsRecordSettings>): Promise<void> {
+  async onDidReceiveSettings(ev: DidReceiveSettingsEvent<DnsRecordSettings>): Promise<void> {
     this.lastEvent = ev;
 
     this.stopMarqueeTimer();
@@ -104,7 +105,7 @@ export class DnsRecordMonitor extends SingletonAction<DnsRecordSettings> {
     await this.updateRecord(ev);
   }
 
-  override onWillDisappear(_ev: WillDisappearEvent<DnsRecordSettings>): void {
+  onWillDisappear(_ev: WillDisappearEvent<DnsRecordSettings>): void {
     if (this.unsubscribeCoordinator) {
       this.unsubscribeCoordinator();
       this.unsubscribeCoordinator = null;
@@ -121,7 +122,7 @@ export class DnsRecordMonitor extends SingletonAction<DnsRecordSettings> {
     }
   }
 
-  override async onKeyDown(ev: KeyDownEvent<DnsRecordSettings>): Promise<void> {
+  async onKeyDown(ev: KeyDownEvent<DnsRecordSettings>): Promise<void> {
     const settings = ev.payload.settings;
     const global = getGlobalSettings();
 
@@ -167,7 +168,7 @@ export class DnsRecordMonitor extends SingletonAction<DnsRecordSettings> {
       this.startMarqueeIfNeeded();
     } catch (error) {
       this.isErrorState = true;
-      this.skipUntil = Date.now() + DnsRecordMonitor.ERROR_BACKOFF_MS;
+      this.skipUntil = Date.now() + DnsRecordMonitorKey.ERROR_BACKOFF_MS;
 
       if (this.lastRecord) {
         streamDeck.logger.debug(
@@ -243,7 +244,7 @@ export class DnsRecordMonitor extends SingletonAction<DnsRecordSettings> {
   private subscribeToCoordinator(): void {
     if (this.unsubscribeCoordinator) return;
     this.unsubscribeCoordinator = getPollingCoordinator().subscribe(
-      "dns-record-monitor",
+      `dns-record-monitor:${this.id}`,
       () => this.onCoordinatorTick(),
     );
   }
@@ -263,7 +264,7 @@ export class DnsRecordMonitor extends SingletonAction<DnsRecordSettings> {
       if (!this.marqueeInterval) {
         this.marqueeInterval = setInterval(
           () => this.onMarqueeTick(),
-          DnsRecordMonitor.MARQUEE_INTERVAL_MS
+          DnsRecordMonitorKey.MARQUEE_INTERVAL_MS
         );
       }
     } else {
@@ -318,5 +319,16 @@ export class DnsRecordMonitor extends SingletonAction<DnsRecordSettings> {
       this.apiClient = new CloudflareDnsApi(global.apiToken!);
       await this.updateRecord(ev);
     });
+  }
+}
+
+/**
+ * DnsRecordMonitor action. The SDK creates a single instance for all keys of this
+ * type, so events are routed to a {@link DnsRecordMonitorKey} per key.
+ */
+@action({ UUID: "com.pedrofuentes.cloudflare-utilities.dns-record-monitor" })
+export class DnsRecordMonitor extends PerKeyAction<DnsRecordSettings, DnsRecordMonitorKey> {
+  protected createHandler(id: string): DnsRecordMonitorKey {
+    return new DnsRecordMonitorKey(id);
   }
 }
