@@ -7,8 +7,8 @@
  * handler owned by a single key (`ev.action.id`), so state, timers and
  * polling subscriptions are never shared between buttons.
  *
- * @author Pedro Fuentes <git@pedrofuent.es>
- * @copyright Pedro Pablo Fuentes Schuster
+ * @author taylorithm <taylorithm@proton.me>
+ * @copyright taylorithm
  * @license MIT
  */
 import {
