@@ -12,7 +12,6 @@ import streamDeck, {
   action,
   DidReceiveSettingsEvent,
   KeyDownEvent,
-  SingletonAction,
   WillAppearEvent,
   WillDisappearEvent,
 } from "@elgato/streamdeck";
@@ -21,6 +20,7 @@ import {
   CloudflareWorkerAnalyticsApi,
   formatDuration,
 } from "../services/cloudflare-worker-analytics-api";
+import { PerKeyAction } from "./per-key-action";
 import { formatCompactNumber, RateLimitError } from "../services/cloudflare-ai-gateway-api";
 import { getGlobalSettings, onGlobalSettingsChanged } from "../services/global-settings-store";
 import { renderKeyImage, renderPlaceholderImage, renderSetupImage, STATUS_COLORS, LINE1_MAX_CHARS, LINE2_MAX_CHARS, LINE3_MAX_CHARS, truncateForDisplay } from "../services/key-image-renderer";
@@ -102,8 +102,7 @@ export function formatMetricValue(
  * - 🟡 Amber  → cpu p99
  * - 🔴 Red    → errors / error rate
  */
-@action({ UUID: "com.pedrofuentes.cloudflare-utilities.worker-analytics" })
-export class WorkerAnalytics extends SingletonAction<WorkerAnalyticsSettings> {
+export class WorkerAnalyticsKey {
   private apiClient: CloudflareWorkerAnalyticsApi | null = null;
 
   /**
@@ -154,7 +153,9 @@ export class WorkerAnalytics extends SingletonAction<WorkerAnalyticsSettings> {
   /**
    * Called when the action appears on the Stream Deck.
    */
-  override async onWillAppear(ev: WillAppearEvent<WorkerAnalyticsSettings>): Promise<void> {
+  constructor(private readonly id: string) {}
+
+  async onWillAppear(ev: WillAppearEvent<WorkerAnalyticsSettings>): Promise<void> {
     this.lastEvent = ev;
     this.subscribeToGlobalSettings();
     this.subscribeToCoordinator();
@@ -192,7 +193,7 @@ export class WorkerAnalytics extends SingletonAction<WorkerAnalyticsSettings> {
   /**
    * Called when settings are updated via the Property Inspector.
    */
-  override async onDidReceiveSettings(
+  async onDidReceiveSettings(
     ev: DidReceiveSettingsEvent<WorkerAnalyticsSettings>
   ): Promise<void> {
     this.lastEvent = ev;
@@ -265,7 +266,7 @@ export class WorkerAnalytics extends SingletonAction<WorkerAnalyticsSettings> {
   /**
    * Called when the action disappears from the Stream Deck.
    */
-  override onWillDisappear(_ev: WillDisappearEvent<WorkerAnalyticsSettings>): void {
+  onWillDisappear(_ev: WillDisappearEvent<WorkerAnalyticsSettings>): void {
     if (this.unsubscribeCoordinator) {
       this.unsubscribeCoordinator();
       this.unsubscribeCoordinator = null;
@@ -290,7 +291,7 @@ export class WorkerAnalytics extends SingletonAction<WorkerAnalyticsSettings> {
   /**
    * Called when the key is pressed. Cycles to the next metric.
    */
-  override async onKeyDown(ev: KeyDownEvent<WorkerAnalyticsSettings>): Promise<void> {
+  async onKeyDown(ev: KeyDownEvent<WorkerAnalyticsSettings>): Promise<void> {
     const settings = ev.payload.settings;
     const global = getGlobalSettings();
 
@@ -453,7 +454,7 @@ export class WorkerAnalytics extends SingletonAction<WorkerAnalyticsSettings> {
   private subscribeToCoordinator(): void {
     if (this.unsubscribeCoordinator) return;
     this.unsubscribeCoordinator = getPollingCoordinator().subscribe(
-      "worker-analytics",
+      `worker-analytics:${this.id}`,
       () => this.onCoordinatorTick(),
     );
   }
@@ -473,7 +474,7 @@ export class WorkerAnalytics extends SingletonAction<WorkerAnalyticsSettings> {
       if (!this.marqueeInterval) {
         this.marqueeInterval = setInterval(
           () => this.onMarqueeTick(),
-          WorkerAnalytics.MARQUEE_INTERVAL_MS
+          WorkerAnalyticsKey.MARQUEE_INTERVAL_MS
         );
       }
     } else {
@@ -542,5 +543,16 @@ export class WorkerAnalytics extends SingletonAction<WorkerAnalyticsSettings> {
 
       await this.updateMetrics(ev);
     });
+  }
+}
+
+/**
+ * WorkerAnalytics action. The SDK creates a single instance for all keys of this
+ * type, so events are routed to a {@link WorkerAnalyticsKey} per key.
+ */
+@action({ UUID: "com.pedrofuentes.cloudflare-utilities.worker-analytics" })
+export class WorkerAnalytics extends PerKeyAction<WorkerAnalyticsSettings, WorkerAnalyticsKey> {
+  protected createHandler(id: string): WorkerAnalyticsKey {
+    return new WorkerAnalyticsKey(id);
   }
 }
