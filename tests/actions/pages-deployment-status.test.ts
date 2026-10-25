@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
-  PagesDeploymentStatus,
+  PagesDeploymentStatus, PagesDeploymentStatusKey,
 } from "../../src/actions/pages-deployment-status";
 import {
   truncateProjectName,
@@ -114,10 +114,10 @@ describe("formatTimeAgo (in Pages context)", () => {
 });
 
 describe("PagesDeploymentStatus", () => {
-  let action: PagesDeploymentStatus;
+  let action: PagesDeploymentStatusKey;
 
   beforeEach(() => {
-    action = new PagesDeploymentStatus();
+    action = new PagesDeploymentStatusKey("key-1");
     mockGetDeploymentStatus = vi.fn();
     capturedGlobalListener = null;
     vi.mocked(getGlobalSettings).mockReturnValue({ apiToken: "test-token", accountId: "test-account" });
