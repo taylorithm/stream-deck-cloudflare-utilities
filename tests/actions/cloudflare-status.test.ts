@@ -31,10 +31,11 @@ vi.mock("@elgato/streamdeck", () => ({
 }));
 
 // Helper to create a mock SD event
-function makeMockEvent(settings: Record<string, unknown> = {}) {
+function makeMockEvent(settings: Record<string, unknown> = {}, id = "key-1") {
   return {
     payload: { settings },
     action: {
+      id,
       setImage: vi.fn().mockResolvedValue(undefined),
     },
   } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -846,5 +847,76 @@ describe("formatTimeAgo", () => {
   it("should use Date.now() as default when now is not provided", () => {
     const recent = Date.now() - 2_000;
     expect(formatTimeAgo(recent)).toBe("just now");
+  });
+});
+
+describe("CloudflareStatus with two keys on different components", () => {
+  const ALPHA = { componentId: "c-a", componentName: "alpha" };
+  const BETA = { componentId: "c-b", componentName: "beta" };
+
+  let mockClient: CloudflareApiClient;
+  let action: CloudflareStatus;
+
+  beforeEach(() => {
+    mockClient = {
+      getComponents: vi.fn().mockResolvedValue([
+        { id: "c-a", name: "alpha", status: "operational" },
+        { id: "c-b", name: "beta", status: "major_outage" },
+      ]),
+    } as unknown as CloudflareApiClient;
+    action = new CloudflareStatus(mockClient);
+  });
+
+  afterEach(() => {
+    resetPollingCoordinator();
+    vi.restoreAllMocks();
+  });
+
+  function lastSvg(ev: ReturnType<typeof makeMockEvent>): string {
+    const calls = ev.action.setImage.mock.calls;
+    return decodeSvg(calls[calls.length - 1][0]);
+  }
+
+  it("should keep each key showing its own component after both appear", async () => {
+    const a = makeMockEvent(ALPHA, "key-a");
+    const b = makeMockEvent(BETA, "key-b");
+    await action.onWillAppear(a);
+    await action.onWillAppear(b);
+
+    expect(lastSvg(a)).toContain("alpha");
+    expect(lastSvg(a)).not.toContain("beta");
+    expect(lastSvg(b)).toContain("beta");
+    expect(lastSvg(b)).not.toContain("alpha");
+  });
+
+  it("should refresh every visible key on a coordinator tick", async () => {
+    const a = makeMockEvent(ALPHA, "key-a");
+    const b = makeMockEvent(BETA, "key-b");
+    await action.onWillAppear(a);
+    await action.onWillAppear(b);
+    a.action.setImage.mockClear();
+    b.action.setImage.mockClear();
+
+    await getPollingCoordinator().tick();
+
+    expect(a.action.setImage).toHaveBeenCalled();
+    expect(b.action.setImage).toHaveBeenCalled();
+    expect(lastSvg(a)).toContain("alpha");
+    expect(lastSvg(b)).toContain("beta");
+  });
+
+  it("should keep refreshing the other key when one key disappears", async () => {
+    const a = makeMockEvent(ALPHA, "key-a");
+    const b = makeMockEvent(BETA, "key-b");
+    await action.onWillAppear(a);
+    await action.onWillAppear(b);
+    action.onWillDisappear(b);
+    a.action.setImage.mockClear();
+    b.action.setImage.mockClear();
+
+    await getPollingCoordinator().tick();
+
+    expect(a.action.setImage).toHaveBeenCalled();
+    expect(b.action.setImage).not.toHaveBeenCalled();
   });
 });
