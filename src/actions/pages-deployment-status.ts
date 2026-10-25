@@ -12,7 +12,6 @@ import streamDeck, {
   action,
   DidReceiveSettingsEvent,
   KeyDownEvent,
-  SingletonAction,
   WillAppearEvent,
   WillDisappearEvent,
 } from "@elgato/streamdeck";
@@ -23,6 +22,7 @@ import {
   truncateProjectName,
   type PagesDeploymentStatus as PagesDeployStatus,
 } from "../services/cloudflare-pages-api";
+import { PerKeyAction } from "./per-key-action";
 import { getGlobalSettings, onGlobalSettingsChanged } from "../services/global-settings-store";
 import { renderKeyImage, renderPlaceholderImage, renderSetupImage, STATUS_COLORS, LINE1_MAX_CHARS, LINE3_MAX_CHARS, truncateForDisplay, formatTimeAgo } from "../services/key-image-renderer";
 import { MarqueeController } from "../services/marquee-controller";
@@ -43,8 +43,7 @@ type StatusState = "success" | "building" | "failed" | "error";
  * - 🟡 Amber  → building / in progress
  * - 🔴 Red    → failed deployment or error
  */
-@action({ UUID: "com.pedrofuentes.cloudflare-utilities.pages-deployment-status" })
-export class PagesDeploymentStatus extends SingletonAction<PagesDeploymentSettings> {
+export class PagesDeploymentStatusKey {
   private apiClient: CloudflarePagesApi | null = null;
   private lastState: StatusState | null = null;
   private lastStatus: PagesDeployStatus | null = null;
@@ -60,7 +59,9 @@ export class PagesDeploymentStatus extends SingletonAction<PagesDeploymentSettin
   private marquee = new MarqueeController(LINE1_MAX_CHARS);
   private marqueeInterval: ReturnType<typeof setInterval> | null = null;
 
-  override async onWillAppear(ev: WillAppearEvent<PagesDeploymentSettings>): Promise<void> {
+  constructor(private readonly id: string) {}
+
+  async onWillAppear(ev: WillAppearEvent<PagesDeploymentSettings>): Promise<void> {
     this.lastEvent = ev;
     this.subscribeToGlobalSettings();
 
@@ -84,7 +85,7 @@ export class PagesDeploymentStatus extends SingletonAction<PagesDeploymentSettin
     this.subscribeToCoordinator();
   }
 
-  override async onDidReceiveSettings(ev: DidReceiveSettingsEvent<PagesDeploymentSettings>): Promise<void> {
+  async onDidReceiveSettings(ev: DidReceiveSettingsEvent<PagesDeploymentSettings>): Promise<void> {
     this.lastEvent = ev;
 
     this.clearDisplayInterval();
@@ -113,7 +114,7 @@ export class PagesDeploymentStatus extends SingletonAction<PagesDeploymentSettin
     await this.updateStatus(ev);
   }
 
-  override onWillDisappear(_ev: WillDisappearEvent<PagesDeploymentSettings>): void {
+  onWillDisappear(_ev: WillDisappearEvent<PagesDeploymentSettings>): void {
     if (this.unsubscribeCoordinator) {
       this.unsubscribeCoordinator();
       this.unsubscribeCoordinator = null;
@@ -133,7 +134,7 @@ export class PagesDeploymentStatus extends SingletonAction<PagesDeploymentSettin
     }
   }
 
-  override async onKeyDown(ev: KeyDownEvent<PagesDeploymentSettings>): Promise<void> {
+  async onKeyDown(ev: KeyDownEvent<PagesDeploymentSettings>): Promise<void> {
     const settings = ev.payload.settings;
     const global = getGlobalSettings();
 
@@ -175,7 +176,7 @@ export class PagesDeploymentStatus extends SingletonAction<PagesDeploymentSettin
     } catch (error) {
       this.lastState = "error";
       this.lastStatus = null;
-      this.skipUntil = Date.now() + PagesDeploymentStatus.ERROR_BACKOFF_MS;
+      this.skipUntil = Date.now() + PagesDeploymentStatusKey.ERROR_BACKOFF_MS;
       this.clearDisplayInterval();
       streamDeck.logger.error(`Failed to fetch Pages deployment status for "${settings.projectName}":`, error);
       await ev.action.setImage(this.renderStatus("error", settings.projectName));
@@ -263,7 +264,7 @@ export class PagesDeploymentStatus extends SingletonAction<PagesDeploymentSettin
   private subscribeToCoordinator(): void {
     if (this.unsubscribeCoordinator) return;
     this.unsubscribeCoordinator = getPollingCoordinator().subscribe(
-      "pages-deployment-status",
+      `pages-deployment-status:${this.id}`,
       () => this.onCoordinatorTick(),
     );
   }
@@ -303,7 +304,7 @@ export class PagesDeploymentStatus extends SingletonAction<PagesDeploymentSettin
       if (!this.marqueeInterval) {
         this.marqueeInterval = setInterval(
           () => this.onMarqueeTick(),
-          PagesDeploymentStatus.MARQUEE_INTERVAL_MS
+          PagesDeploymentStatusKey.MARQUEE_INTERVAL_MS
         );
       }
     } else {
@@ -365,5 +366,16 @@ export class PagesDeploymentStatus extends SingletonAction<PagesDeploymentSettin
       this.apiClient = new CloudflarePagesApi(global.apiToken!, global.accountId!);
       await this.updateStatus(ev);
     });
+  }
+}
+
+/**
+ * PagesDeploymentStatus action. The SDK creates a single instance for all keys of this
+ * type, so events are routed to a {@link PagesDeploymentStatusKey} per key.
+ */
+@action({ UUID: "com.pedrofuentes.cloudflare-utilities.pages-deployment-status" })
+export class PagesDeploymentStatus extends PerKeyAction<PagesDeploymentSettings, PagesDeploymentStatusKey> {
+  protected createHandler(id: string): PagesDeploymentStatusKey {
+    return new PagesDeploymentStatusKey(id);
   }
 }
