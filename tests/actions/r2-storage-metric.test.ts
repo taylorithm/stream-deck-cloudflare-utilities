@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
-  R2StorageMetric,
+  R2StorageMetric, R2StorageMetricKey,
   truncateBucketName,
   metricColor,
   formatMetricValue,
@@ -128,10 +128,10 @@ describe("key cycling order", () => {
 });
 
 describe("R2StorageMetric", () => {
-  let action: R2StorageMetric;
+  let action: R2StorageMetricKey;
 
   beforeEach(() => {
-    action = new R2StorageMetric();
+    action = new R2StorageMetricKey("key-1");
     mockGetMetrics = vi.fn();
     capturedGlobalListener = null;
     vi.mocked(getGlobalSettings).mockReturnValue({ apiToken: "test-token", accountId: "test-account" });
