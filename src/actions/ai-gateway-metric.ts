@@ -12,7 +12,6 @@ import streamDeck, {
   action,
   DidReceiveSettingsEvent,
   KeyDownEvent,
-  SingletonAction,
   WillAppearEvent,
   WillDisappearEvent,
 } from "@elgato/streamdeck";
@@ -23,6 +22,7 @@ import {
   formatCost,
   RateLimitError,
 } from "../services/cloudflare-ai-gateway-api";
+import { PerKeyAction } from "./per-key-action";
 import { getGlobalSettings, onGlobalSettingsChanged } from "../services/global-settings-store";
 import { renderKeyImage, renderPlaceholderImage, renderSetupImage, STATUS_COLORS, LINE1_MAX_CHARS, LINE2_MAX_CHARS, LINE3_MAX_CHARS, truncateForDisplay } from "../services/key-image-renderer";
 import { MarqueeController } from "../services/marquee-controller";
@@ -107,8 +107,7 @@ export function formatMetricValue(metric: AiGatewayMetricType, metrics: AiGatewa
  *
  * All configuration is done through the Property Inspector.
  */
-@action({ UUID: "com.pedrofuentes.cloudflare-utilities.ai-gateway-metric" })
-export class AiGatewayMetric extends SingletonAction<AiGatewayMetricSettings> {
+export class AiGatewayMetricKey {
   private apiClient: CloudflareAiGatewayApi | null = null;
 
   /**
@@ -166,7 +165,9 @@ export class AiGatewayMetric extends SingletonAction<AiGatewayMetricSettings> {
   /**
    * Called when the action appears on the Stream Deck.
    */
-  override async onWillAppear(ev: WillAppearEvent<AiGatewayMetricSettings>): Promise<void> {
+  constructor(private readonly id: string) {}
+
+  async onWillAppear(ev: WillAppearEvent<AiGatewayMetricSettings>): Promise<void> {
     this.lastEvent = ev;
     this.subscribeToGlobalSettings();
     this.subscribeToCoordinator();
@@ -211,7 +212,7 @@ export class AiGatewayMetric extends SingletonAction<AiGatewayMetricSettings> {
    * doing a full API refetch — this prevents race conditions when the user
    * cycles metrics via key presses.
    */
-  override async onDidReceiveSettings(ev: DidReceiveSettingsEvent<AiGatewayMetricSettings>): Promise<void> {
+  async onDidReceiveSettings(ev: DidReceiveSettingsEvent<AiGatewayMetricSettings>): Promise<void> {
     this.lastEvent = ev;
 
     const settings = ev.payload.settings;
@@ -286,7 +287,7 @@ export class AiGatewayMetric extends SingletonAction<AiGatewayMetricSettings> {
   /**
    * Called when the action disappears from the Stream Deck.
    */
-  override onWillDisappear(_ev: WillDisappearEvent<AiGatewayMetricSettings>): void {
+  onWillDisappear(_ev: WillDisappearEvent<AiGatewayMetricSettings>): void {
     if (this.unsubscribeCoordinator) {
       this.unsubscribeCoordinator();
       this.unsubscribeCoordinator = null;
@@ -313,7 +314,7 @@ export class AiGatewayMetric extends SingletonAction<AiGatewayMetricSettings> {
    * Called when the key is pressed. Cycles to the next metric and re-renders
    * using cached data (no API call on press — metrics refresh on interval).
    */
-  override async onKeyDown(ev: KeyDownEvent<AiGatewayMetricSettings>): Promise<void> {
+  async onKeyDown(ev: KeyDownEvent<AiGatewayMetricSettings>): Promise<void> {
     const settings = ev.payload.settings;
     const global = getGlobalSettings();
 
@@ -478,7 +479,7 @@ export class AiGatewayMetric extends SingletonAction<AiGatewayMetricSettings> {
   private subscribeToCoordinator(): void {
     if (this.unsubscribeCoordinator) return;
     this.unsubscribeCoordinator = getPollingCoordinator().subscribe(
-      "ai-gateway-metric",
+      `ai-gateway-metric:${this.id}`,
       () => this.onCoordinatorTick(),
     );
   }
@@ -500,7 +501,7 @@ export class AiGatewayMetric extends SingletonAction<AiGatewayMetricSettings> {
   private startMarqueeIfNeeded(): void {
     if (this.marquee.needsAnimation() && this.lastMetrics) {
       if (!this.marqueeInterval) {
-        this.marqueeInterval = setInterval(() => this.onMarqueeTick(), AiGatewayMetric.MARQUEE_INTERVAL_MS);
+        this.marqueeInterval = setInterval(() => this.onMarqueeTick(), AiGatewayMetricKey.MARQUEE_INTERVAL_MS);
       }
     } else {
       this.stopMarqueeTimer();
@@ -573,5 +574,16 @@ export class AiGatewayMetric extends SingletonAction<AiGatewayMetricSettings> {
 
       await this.updateMetrics(ev);
     });
+  }
+}
+
+/**
+ * AiGatewayMetric action. The SDK creates a single instance for all keys of this
+ * type, so events are routed to a {@link AiGatewayMetricKey} per key.
+ */
+@action({ UUID: "com.pedrofuentes.cloudflare-utilities.ai-gateway-metric" })
+export class AiGatewayMetric extends PerKeyAction<AiGatewayMetricSettings, AiGatewayMetricKey> {
+  protected createHandler(id: string): AiGatewayMetricKey {
+    return new AiGatewayMetricKey(id);
   }
 }
