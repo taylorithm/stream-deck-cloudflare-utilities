@@ -54,10 +54,11 @@ vi.mock("../../src/services/cloudflare-r2-api", async (importOriginal) => {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function makeMockEvent(settings: Record<string, unknown> = {}) {
+function makeMockEvent(settings: Record<string, unknown> = {}, id = "key-1") {
   return {
     payload: { settings },
     action: {
+      id,
       setImage: vi.fn().mockResolvedValue(undefined),
       setSettings: vi.fn().mockResolvedValue(undefined),
     },
@@ -374,5 +375,87 @@ describe("R2StorageMetric", () => {
       await capturedGlobalListener!({});
       expect(decodeSvg(ev.action.setImage.mock.calls[0][0])).toContain("Setup");
     });
+  });
+});
+
+describe("R2StorageMetric with two keys on different buckets", () => {
+  const ALPHA = { bucketName: "alpha-r2", metric: "objects" as const, timeRange: "24h" as const };
+  const BETA = { bucketName: "beta-r2", metric: "objects" as const, timeRange: "24h" as const };
+
+  let action: R2StorageMetric;
+
+  beforeEach(() => {
+    action = new R2StorageMetric();
+    mockGetMetrics = vi.fn((...args: unknown[]) => Promise.resolve(makeMetrics()));
+    vi.mocked(getGlobalSettings).mockReturnValue({ apiToken: "test-token", accountId: "test-account" });
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    resetPollingCoordinator();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  function lastSvg(ev: ReturnType<typeof makeMockEvent>): string {
+    const calls = ev.action.setImage.mock.calls;
+    return decodeSvg(calls[calls.length - 1][0]);
+  }
+
+  it("should keep each key showing its own bucket after both appear", async () => {
+    const a = makeMockEvent(ALPHA, "key-a");
+    const b = makeMockEvent(BETA, "key-b");
+    await action.onWillAppear(a);
+    await action.onWillAppear(b);
+
+    expect(lastSvg(a)).toContain("alpha-r2");
+    expect(lastSvg(a)).not.toContain("beta-r2");
+    expect(lastSvg(b)).toContain("beta-r2");
+    expect(lastSvg(b)).not.toContain("alpha-r2");
+  });
+
+  it("should refresh every visible key on a coordinator tick", async () => {
+    const a = makeMockEvent(ALPHA, "key-a");
+    const b = makeMockEvent(BETA, "key-b");
+    await action.onWillAppear(a);
+    await action.onWillAppear(b);
+    a.action.setImage.mockClear();
+    b.action.setImage.mockClear();
+    mockGetMetrics.mockClear();
+
+    await getPollingCoordinator().tick();
+
+    expect(mockGetMetrics.mock.calls.map((c) => c[0]).sort()).toEqual(["alpha-r2", "beta-r2"]);
+    expect(lastSvg(a)).toContain("alpha-r2");
+    expect(lastSvg(b)).toContain("beta-r2");
+  });
+
+  it("should redraw a pressed key with its own bucket, not the last fetched one", async () => {
+    const a = makeMockEvent(ALPHA, "key-a");
+    const b = makeMockEvent(BETA, "key-b");
+    await action.onWillAppear(a);
+    await action.onWillAppear(b);
+    a.action.setImage.mockClear();
+
+    await action.onKeyDown(a);
+
+    const svg = lastSvg(a);
+    expect(svg).toContain("alpha-r2");
+    expect(svg).not.toContain("beta-r2");
+  });
+
+  it("should keep refreshing the other key when one key disappears", async () => {
+    const a = makeMockEvent(ALPHA, "key-a");
+    const b = makeMockEvent(BETA, "key-b");
+    await action.onWillAppear(a);
+    await action.onWillAppear(b);
+    action.onWillDisappear(b);
+    a.action.setImage.mockClear();
+    b.action.setImage.mockClear();
+
+    await getPollingCoordinator().tick();
+
+    expect(a.action.setImage).toHaveBeenCalled();
+    expect(b.action.setImage).not.toHaveBeenCalled();
   });
 });
