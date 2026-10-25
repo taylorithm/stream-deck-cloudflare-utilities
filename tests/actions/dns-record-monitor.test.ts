@@ -6,7 +6,7 @@
  * @license MIT
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { DnsRecordMonitor } from "../../src/actions/dns-record-monitor";
+import { DnsRecordMonitor, DnsRecordMonitorKey } from "../../src/actions/dns-record-monitor";
 import { truncateDomainName, type DnsRecordStatus } from "../../src/services/cloudflare-dns-api";
 import { STATUS_COLORS } from "../../src/services/key-image-renderer";
 import { getGlobalSettings, onGlobalSettingsChanged } from "../../src/services/global-settings-store";
@@ -92,10 +92,10 @@ describe("truncateDomainName", () => {
 });
 
 describe("DnsRecordMonitor", () => {
-  let action: DnsRecordMonitor;
+  let action: DnsRecordMonitorKey;
 
   beforeEach(() => {
-    action = new DnsRecordMonitor();
+    action = new DnsRecordMonitorKey("key-1");
     mockGetRecordStatus = vi.fn();
     capturedGlobalListener = null;
     vi.mocked(getGlobalSettings).mockReturnValue({ apiToken: "test-token", accountId: "test-account" });
