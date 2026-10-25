@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
-  AiGatewayMetric,
+  AiGatewayMetric, AiGatewayMetricKey,
   truncateGatewayName,
   metricColor,
   formatMetricValue,
@@ -237,10 +237,10 @@ describe("formatMetricValue", () => {
 // ── AiGatewayMetric Action ───────────────────────────────────────────────────
 
 describe("AiGatewayMetric", () => {
-  let action: AiGatewayMetric;
+  let action: AiGatewayMetricKey;
 
   beforeEach(() => {
-    action = new AiGatewayMetric();
+    action = new AiGatewayMetricKey("key-1");
     mockGetMetrics = vi.fn();
     mockListGateways = vi.fn();
     capturedGlobalListener = null;
