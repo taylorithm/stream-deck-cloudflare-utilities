@@ -12,7 +12,6 @@ import streamDeck, {
   action,
   DidReceiveSettingsEvent,
   KeyDownEvent,
-  SingletonAction,
   WillAppearEvent,
   WillDisappearEvent,
 } from "@elgato/streamdeck";
@@ -24,6 +23,7 @@ import {
 import { formatCompactNumber } from "../services/cloudflare-ai-gateway-api";
 import { getGlobalSettings, onGlobalSettingsChanged } from "../services/global-settings-store";
 import { renderKeyImage, renderPlaceholderImage, renderSetupImage, STATUS_COLORS, LINE1_MAX_CHARS, LINE2_MAX_CHARS, LINE3_MAX_CHARS, truncateForDisplay } from "../services/key-image-renderer";
+import { PerKeyAction } from "./per-key-action";
 import { MarqueeController } from "../services/marquee-controller";
 import { getPollingCoordinator } from "../services/polling-coordinator";
 import { RateLimitError } from "../services/cloudflare-ai-gateway-api";
@@ -89,14 +89,16 @@ export function formatMetricValue(
 }
 
 /**
- * Zone Analytics action — displays selected analytics metric from a
- * Cloudflare zone on a Stream Deck key.
+ * Zone Analytics handler for a single Stream Deck key — displays the
+ * selected analytics metric from a Cloudflare zone.
  *
  * Pressing the key cycles through available metrics:
  *   Requests → Bandwidth → Cache Rate → Threats → Visitors
+ *
+ * One instance exists per key (see {@link ZoneAnalytics}), so the fields
+ * below are never shared between buttons.
  */
-@action({ UUID: "com.pedrofuentes.cloudflare-utilities.zone-analytics" })
-export class ZoneAnalytics extends SingletonAction<ZoneAnalyticsSettings> {
+export class ZoneAnalyticsKey {
   private apiClient: CloudflareZoneAnalyticsApi | null = null;
   private fetchGeneration = 0;
   private lastMetrics: ZoneAnalyticsMetrics | null = null;
@@ -114,7 +116,9 @@ export class ZoneAnalytics extends SingletonAction<ZoneAnalyticsSettings> {
   private isErrorState = false;
   private skipUntil = 0;
 
-  override async onWillAppear(ev: WillAppearEvent<ZoneAnalyticsSettings>): Promise<void> {
+  constructor(private readonly id: string) {}
+
+  async onWillAppear(ev: WillAppearEvent<ZoneAnalyticsSettings>): Promise<void> {
     this.lastEvent = ev;
     this.subscribeToGlobalSettings();
     this.subscribeToCoordinator();
@@ -149,7 +153,7 @@ export class ZoneAnalytics extends SingletonAction<ZoneAnalyticsSettings> {
     await this.updateMetrics(ev);
   }
 
-  override async onDidReceiveSettings(ev: DidReceiveSettingsEvent<ZoneAnalyticsSettings>): Promise<void> {
+  async onDidReceiveSettings(ev: DidReceiveSettingsEvent<ZoneAnalyticsSettings>): Promise<void> {
     this.lastEvent = ev;
 
     const settings = ev.payload.settings;
@@ -220,7 +224,7 @@ export class ZoneAnalytics extends SingletonAction<ZoneAnalyticsSettings> {
     await this.updateMetrics(ev);
   }
 
-  override onWillDisappear(_ev: WillDisappearEvent<ZoneAnalyticsSettings>): void {
+  onWillDisappear(_ev: WillDisappearEvent<ZoneAnalyticsSettings>): void {
     if (this.unsubscribeCoordinator) {
       this.unsubscribeCoordinator();
       this.unsubscribeCoordinator = null;
@@ -243,7 +247,7 @@ export class ZoneAnalytics extends SingletonAction<ZoneAnalyticsSettings> {
     }
   }
 
-  override async onKeyDown(ev: KeyDownEvent<ZoneAnalyticsSettings>): Promise<void> {
+  async onKeyDown(ev: KeyDownEvent<ZoneAnalyticsSettings>): Promise<void> {
     const settings = ev.payload.settings;
     const global = getGlobalSettings();
 
@@ -382,7 +386,7 @@ export class ZoneAnalytics extends SingletonAction<ZoneAnalyticsSettings> {
   private subscribeToCoordinator(): void {
     if (this.unsubscribeCoordinator) return;
     this.unsubscribeCoordinator = getPollingCoordinator().subscribe(
-      "zone-analytics",
+      `zone-analytics:${this.id}`,
       () => this.onCoordinatorTick(),
     );
   }
@@ -398,7 +402,7 @@ export class ZoneAnalytics extends SingletonAction<ZoneAnalyticsSettings> {
       if (!this.marqueeInterval) {
         this.marqueeInterval = setInterval(
           () => this.onMarqueeTick(),
-          ZoneAnalytics.MARQUEE_INTERVAL_MS
+          ZoneAnalyticsKey.MARQUEE_INTERVAL_MS
         );
       }
     } else {
@@ -464,5 +468,16 @@ export class ZoneAnalytics extends SingletonAction<ZoneAnalyticsSettings> {
       this.apiClient = new CloudflareZoneAnalyticsApi(global.apiToken!);
       await this.updateMetrics(ev);
     });
+  }
+}
+
+/**
+ * Zone Analytics action. The SDK creates a single instance for all keys of
+ * this type, so events are routed to a {@link ZoneAnalyticsKey} per key.
+ */
+@action({ UUID: "com.pedrofuentes.cloudflare-utilities.zone-analytics" })
+export class ZoneAnalytics extends PerKeyAction<ZoneAnalyticsSettings, ZoneAnalyticsKey> {
+  protected createHandler(id: string): ZoneAnalyticsKey {
+    return new ZoneAnalyticsKey(id);
   }
 }
