@@ -54,10 +54,11 @@ vi.mock("../../src/services/cloudflare-d1-api", async (importOriginal) => {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function makeMockEvent(settings: Record<string, unknown> = {}) {
+function makeMockEvent(settings: Record<string, unknown> = {}, id = "key-1") {
   return {
     payload: { settings },
     action: {
+      id,
       setImage: vi.fn().mockResolvedValue(undefined),
       setSettings: vi.fn().mockResolvedValue(undefined),
     },
@@ -551,5 +552,87 @@ describe("D1DatabaseMetric", () => {
       const svg = decodeSvg(ev.action.setImage.mock.calls[0][0]);
       expect(svg).toContain("Setup");
     });
+  });
+});
+
+describe("D1DatabaseMetric with two keys on different databases", () => {
+  const ALPHA = { databaseId: "db-a", databaseName: "alpha-db", metric: "reads" as const, timeRange: "24h" as const };
+  const BETA = { databaseId: "db-b", databaseName: "beta-db", metric: "reads" as const, timeRange: "24h" as const };
+
+  let action: D1DatabaseMetric;
+
+  beforeEach(() => {
+    action = new D1DatabaseMetric();
+    mockGetAnalytics = vi.fn((...args: unknown[]) => Promise.resolve(makeMetrics()));
+    vi.mocked(getGlobalSettings).mockReturnValue({ apiToken: "test-token", accountId: "test-account" });
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    resetPollingCoordinator();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  function lastSvg(ev: ReturnType<typeof makeMockEvent>): string {
+    const calls = ev.action.setImage.mock.calls;
+    return decodeSvg(calls[calls.length - 1][0]);
+  }
+
+  it("should keep each key showing its own database after both appear", async () => {
+    const a = makeMockEvent(ALPHA, "key-a");
+    const b = makeMockEvent(BETA, "key-b");
+    await action.onWillAppear(a);
+    await action.onWillAppear(b);
+
+    expect(lastSvg(a)).toContain("alpha-db");
+    expect(lastSvg(a)).not.toContain("beta-db");
+    expect(lastSvg(b)).toContain("beta-db");
+    expect(lastSvg(b)).not.toContain("alpha-db");
+  });
+
+  it("should refresh every visible key on a coordinator tick", async () => {
+    const a = makeMockEvent(ALPHA, "key-a");
+    const b = makeMockEvent(BETA, "key-b");
+    await action.onWillAppear(a);
+    await action.onWillAppear(b);
+    a.action.setImage.mockClear();
+    b.action.setImage.mockClear();
+    mockGetAnalytics.mockClear();
+
+    await getPollingCoordinator().tick();
+
+    expect(mockGetAnalytics.mock.calls.map((c) => c[0]).sort()).toEqual(["db-a", "db-b"]);
+    expect(lastSvg(a)).toContain("alpha-db");
+    expect(lastSvg(b)).toContain("beta-db");
+  });
+
+  it("should redraw a pressed key with its own database, not the last fetched one", async () => {
+    const a = makeMockEvent(ALPHA, "key-a");
+    const b = makeMockEvent(BETA, "key-b");
+    await action.onWillAppear(a);
+    await action.onWillAppear(b);
+    a.action.setImage.mockClear();
+
+    await action.onKeyDown(a);
+
+    const svg = lastSvg(a);
+    expect(svg).toContain("alpha-db");
+    expect(svg).not.toContain("beta-db");
+  });
+
+  it("should keep refreshing the other key when one key disappears", async () => {
+    const a = makeMockEvent(ALPHA, "key-a");
+    const b = makeMockEvent(BETA, "key-b");
+    await action.onWillAppear(a);
+    await action.onWillAppear(b);
+    action.onWillDisappear(b);
+    a.action.setImage.mockClear();
+    b.action.setImage.mockClear();
+
+    await getPollingCoordinator().tick();
+
+    expect(a.action.setImage).toHaveBeenCalled();
+    expect(b.action.setImage).not.toHaveBeenCalled();
   });
 });
