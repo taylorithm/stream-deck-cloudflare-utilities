@@ -52,10 +52,11 @@ vi.mock("../../src/services/global-settings-store", () => ({
 }));
 
 // Helper to create a mock SD event
-function makeMockEvent(settings: Record<string, unknown> = {}) {
+function makeMockEvent(settings: Record<string, unknown> = {}, id = "key-1") {
   return {
     payload: { settings },
     action: {
+      id,
       setImage: vi.fn().mockResolvedValue(undefined),
     },
   } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -1077,5 +1078,73 @@ describe("WorkerDeploymentStatus", () => {
 
       vi.useRealTimers();
     });
+  });
+});
+
+describe("WorkerDeploymentStatus with two keys on different workers", () => {
+  const ALPHA = { workerName: "alpha-wrk" };
+  const BETA = { workerName: "beta-wrk" };
+
+  let action: WorkerDeploymentStatus;
+
+  beforeEach(() => {
+    action = new WorkerDeploymentStatus();
+    mockGetDeploymentStatus = vi.fn((...args: unknown[]) => Promise.resolve({ isLive: true, isGradual: false, createdOn: new Date().toISOString(), source: "api", versionSplit: "100", deploymentId: "d-1" }));
+    vi.mocked(getGlobalSettings).mockReturnValue({ apiToken: "test-token", accountId: "test-account" });
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    resetPollingCoordinator();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  function lastSvg(ev: ReturnType<typeof makeMockEvent>): string {
+    const calls = ev.action.setImage.mock.calls;
+    return decodeSvg(calls[calls.length - 1][0]);
+  }
+
+  it("should keep each key showing its own worker after both appear", async () => {
+    const a = makeMockEvent(ALPHA, "key-a");
+    const b = makeMockEvent(BETA, "key-b");
+    await action.onWillAppear(a);
+    await action.onWillAppear(b);
+
+    expect(lastSvg(a)).toContain("alpha-wrk");
+    expect(lastSvg(a)).not.toContain("beta-wrk");
+    expect(lastSvg(b)).toContain("beta-wrk");
+    expect(lastSvg(b)).not.toContain("alpha-wrk");
+  });
+
+  it("should refresh every visible key on a coordinator tick", async () => {
+    const a = makeMockEvent(ALPHA, "key-a");
+    const b = makeMockEvent(BETA, "key-b");
+    await action.onWillAppear(a);
+    await action.onWillAppear(b);
+    a.action.setImage.mockClear();
+    b.action.setImage.mockClear();
+    mockGetDeploymentStatus.mockClear();
+
+    await getPollingCoordinator().tick();
+
+    expect(mockGetDeploymentStatus.mock.calls.map((c) => c[0]).sort()).toEqual(["alpha-wrk", "beta-wrk"]);
+    expect(lastSvg(a)).toContain("alpha-wrk");
+    expect(lastSvg(b)).toContain("beta-wrk");
+  });
+
+  it("should keep refreshing the other key when one key disappears", async () => {
+    const a = makeMockEvent(ALPHA, "key-a");
+    const b = makeMockEvent(BETA, "key-b");
+    await action.onWillAppear(a);
+    await action.onWillAppear(b);
+    action.onWillDisappear(b);
+    a.action.setImage.mockClear();
+    b.action.setImage.mockClear();
+
+    await getPollingCoordinator().tick();
+
+    expect(a.action.setImage).toHaveBeenCalled();
+    expect(b.action.setImage).not.toHaveBeenCalled();
   });
 });
