@@ -48,10 +48,11 @@ vi.mock("../../src/services/cloudflare-dns-api", async (importOriginal) => {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function makeMockEvent(settings: Record<string, unknown> = {}) {
+function makeMockEvent(settings: Record<string, unknown> = {}, id = "key-1") {
   return {
     payload: { settings },
     action: {
+      id,
       setImage: vi.fn().mockResolvedValue(undefined),
       setSettings: vi.fn().mockResolvedValue(undefined),
     },
@@ -312,5 +313,73 @@ describe("DnsRecordMonitor", () => {
       await capturedGlobalListener!({});
       expect(decodeSvg(ev.action.setImage.mock.calls[0][0])).toContain("Setup");
     });
+  });
+});
+
+describe("DnsRecordMonitor with two keys on different records", () => {
+  const ALPHA = { zoneId: "zone-a", zoneName: "a.test", recordName: "a.test", recordType: "A" };
+  const BETA = { zoneId: "zone-b", zoneName: "b.test", recordName: "b.test", recordType: "A" };
+
+  let action: DnsRecordMonitor;
+
+  beforeEach(() => {
+    action = new DnsRecordMonitor();
+    mockGetRecordStatus = vi.fn((...args: unknown[]) => Promise.resolve(makeRecord({ name: String(args[1]) })));
+    vi.mocked(getGlobalSettings).mockReturnValue({ apiToken: "test-token", accountId: "test-account" });
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    resetPollingCoordinator();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  function lastSvg(ev: ReturnType<typeof makeMockEvent>): string {
+    const calls = ev.action.setImage.mock.calls;
+    return decodeSvg(calls[calls.length - 1][0]);
+  }
+
+  it("should keep each key showing its own record after both appear", async () => {
+    const a = makeMockEvent(ALPHA, "key-a");
+    const b = makeMockEvent(BETA, "key-b");
+    await action.onWillAppear(a);
+    await action.onWillAppear(b);
+
+    expect(lastSvg(a)).toContain("a.test");
+    expect(lastSvg(a)).not.toContain("b.test");
+    expect(lastSvg(b)).toContain("b.test");
+    expect(lastSvg(b)).not.toContain("a.test");
+  });
+
+  it("should refresh every visible key on a coordinator tick", async () => {
+    const a = makeMockEvent(ALPHA, "key-a");
+    const b = makeMockEvent(BETA, "key-b");
+    await action.onWillAppear(a);
+    await action.onWillAppear(b);
+    a.action.setImage.mockClear();
+    b.action.setImage.mockClear();
+    mockGetRecordStatus.mockClear();
+
+    await getPollingCoordinator().tick();
+
+    expect(mockGetRecordStatus.mock.calls.map((c) => c[0]).sort()).toEqual(["zone-a", "zone-b"]);
+    expect(lastSvg(a)).toContain("a.test");
+    expect(lastSvg(b)).toContain("b.test");
+  });
+
+  it("should keep refreshing the other key when one key disappears", async () => {
+    const a = makeMockEvent(ALPHA, "key-a");
+    const b = makeMockEvent(BETA, "key-b");
+    await action.onWillAppear(a);
+    await action.onWillAppear(b);
+    action.onWillDisappear(b);
+    a.action.setImage.mockClear();
+    b.action.setImage.mockClear();
+
+    await getPollingCoordinator().tick();
+
+    expect(a.action.setImage).toHaveBeenCalled();
+    expect(b.action.setImage).not.toHaveBeenCalled();
   });
 });
