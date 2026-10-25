@@ -12,11 +12,11 @@ import streamDeck, {
   action,
   DidReceiveSettingsEvent,
   KeyDownEvent,
-  SingletonAction,
   WillAppearEvent,
   WillDisappearEvent,
 } from "@elgato/streamdeck";
 
+import { PerKeyAction } from "./per-key-action";
 import { CloudflareWorkersApi, truncateWorkerName } from "../services/cloudflare-workers-api";
 import { formatTimeAgo } from "../services/key-image-renderer";
 import { getGlobalSettings, onGlobalSettingsChanged } from "../services/global-settings-store";
@@ -53,8 +53,7 @@ type StatusState = "live" | "gradual" | "recent" | "error";
  * When only the worker name is missing, the key shows "..." as a passive placeholder.
  * All configuration is done through the Property Inspector.
  */
-@action({ UUID: "com.pedrofuentes.cloudflare-utilities.worker-deployment-status" })
-export class WorkerDeploymentStatus extends SingletonAction<WorkerDeploymentSettings> {
+export class WorkerDeploymentStatusKey {
   private apiClient: CloudflareWorkersApi | null = null;
   private lastState: StatusState | null = null;
 
@@ -97,7 +96,9 @@ export class WorkerDeploymentStatus extends SingletonAction<WorkerDeploymentSett
    * Called when the action appears on the Stream Deck.
    * Validates settings, creates the API client, and starts periodic refresh.
    */
-  override async onWillAppear(ev: WillAppearEvent<WorkerDeploymentSettings>): Promise<void> {
+  constructor(private readonly id: string) {}
+
+  async onWillAppear(ev: WillAppearEvent<WorkerDeploymentSettings>): Promise<void> {
     this.lastEvent = ev;
     this.subscribeToGlobalSettings();
 
@@ -126,7 +127,7 @@ export class WorkerDeploymentStatus extends SingletonAction<WorkerDeploymentSett
    * Called when settings are updated via the Property Inspector.
    * Re-initializes the API client and restarts the refresh cycle.
    */
-  override async onDidReceiveSettings(ev: DidReceiveSettingsEvent<WorkerDeploymentSettings>): Promise<void> {
+  async onDidReceiveSettings(ev: DidReceiveSettingsEvent<WorkerDeploymentSettings>): Promise<void> {
     this.lastEvent = ev;
 
     // Tear down existing state
@@ -161,7 +162,7 @@ export class WorkerDeploymentStatus extends SingletonAction<WorkerDeploymentSett
    * Called when the action disappears from the Stream Deck.
    * Cleans up the refresh interval and API client.
    */
-  override onWillDisappear(_ev: WillDisappearEvent<WorkerDeploymentSettings>): void {
+  onWillDisappear(_ev: WillDisappearEvent<WorkerDeploymentSettings>): void {
     if (this.unsubscribeCoordinator) {
       this.unsubscribeCoordinator();
       this.unsubscribeCoordinator = null;
@@ -184,7 +185,7 @@ export class WorkerDeploymentStatus extends SingletonAction<WorkerDeploymentSett
   /**
    * Called when the key is pressed. Triggers an immediate status refresh.
    */
-  override async onKeyDown(ev: KeyDownEvent<WorkerDeploymentSettings>): Promise<void> {
+  async onKeyDown(ev: KeyDownEvent<WorkerDeploymentSettings>): Promise<void> {
     const settings = ev.payload.settings;
     const global = getGlobalSettings();
 
@@ -231,7 +232,7 @@ export class WorkerDeploymentStatus extends SingletonAction<WorkerDeploymentSett
     } catch (error) {
       this.lastState = "error";
       this.lastStatus = null;
-      this.skipUntil = Date.now() + WorkerDeploymentStatus.ERROR_BACKOFF_MS;
+      this.skipUntil = Date.now() + WorkerDeploymentStatusKey.ERROR_BACKOFF_MS;
       this.clearDisplayInterval();
       streamDeck.logger.error(`Failed to fetch deployment status for "${settings.workerName}":`, error);
       await ev.action.setImage(this.renderStatus("error", settings.workerName));
@@ -249,7 +250,7 @@ export class WorkerDeploymentStatus extends SingletonAction<WorkerDeploymentSett
 
     const currentTime = now ?? Date.now();
     const deployedAt = new Date(status.createdOn).getTime();
-    if (!isNaN(deployedAt) && currentTime - deployedAt < WorkerDeploymentStatus.RECENT_THRESHOLD_MS) {
+    if (!isNaN(deployedAt) && currentTime - deployedAt < WorkerDeploymentStatusKey.RECENT_THRESHOLD_MS) {
       return "recent";
     }
 
@@ -348,7 +349,7 @@ export class WorkerDeploymentStatus extends SingletonAction<WorkerDeploymentSett
     if (this.unsubscribeCoordinator) return;
 
     this.unsubscribeCoordinator = getPollingCoordinator().subscribe(
-      "com.pedrofuentes.cloudflare-utilities.worker-deployment-status",
+      `com.pedrofuentes.cloudflare-utilities.worker-deployment-status:${this.id}`,
       async () => {
         if (Date.now() < this.skipUntil) return;
         if (!this.apiClient || !this.lastEvent) return;
@@ -460,7 +461,7 @@ export class WorkerDeploymentStatus extends SingletonAction<WorkerDeploymentSett
   private startMarqueeIfNeeded(): void {
     if (this.marquee.needsAnimation()) {
       if (!this.marqueeInterval) {
-        this.marqueeInterval = setInterval(() => this.onMarqueeTick(), WorkerDeploymentStatus.MARQUEE_INTERVAL_MS);
+        this.marqueeInterval = setInterval(() => this.onMarqueeTick(), WorkerDeploymentStatusKey.MARQUEE_INTERVAL_MS);
       }
     } else {
       this.stopMarqueeTimer();
@@ -490,5 +491,16 @@ export class WorkerDeploymentStatus extends SingletonAction<WorkerDeploymentSett
       this.renderStatus(state, this.lastWorkerName, undefined, this.lastStatus ?? undefined,
         this.marquee.getCurrentText())
     );
+  }
+}
+
+/**
+ * WorkerDeploymentStatus action. The SDK creates a single instance for all keys of this
+ * type, so events are routed to a {@link WorkerDeploymentStatusKey} per key.
+ */
+@action({ UUID: "com.pedrofuentes.cloudflare-utilities.worker-deployment-status" })
+export class WorkerDeploymentStatus extends PerKeyAction<WorkerDeploymentSettings, WorkerDeploymentStatusKey> {
+  protected createHandler(id: string): WorkerDeploymentStatusKey {
+    return new WorkerDeploymentStatusKey(id);
   }
 }
