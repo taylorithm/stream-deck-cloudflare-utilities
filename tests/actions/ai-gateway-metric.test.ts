@@ -66,10 +66,11 @@ vi.mock("../../src/services/cloudflare-ai-gateway-api", async (importOriginal) =
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function makeMockEvent(settings: Record<string, unknown> = {}) {
+function makeMockEvent(settings: Record<string, unknown> = {}, id = "key-1") {
   return {
     payload: { settings },
     action: {
+      id,
       setImage: vi.fn().mockResolvedValue(undefined),
       setSettings: vi.fn().mockResolvedValue(undefined),
     },
@@ -1133,5 +1134,87 @@ describe("AiGatewayMetric", () => {
       const lastSvg = decodeSvg(calls[calls.length - 1][0]);
       expect(lastSvg).toContain("eway"); // wrap-around visible
     });
+  });
+});
+
+describe("AiGatewayMetric with two keys on different gateways", () => {
+  const ALPHA = { gatewayId: "alpha-gw", metric: "requests" as const, timeRange: "24h" as const };
+  const BETA = { gatewayId: "beta-gw", metric: "requests" as const, timeRange: "24h" as const };
+
+  let action: AiGatewayMetric;
+
+  beforeEach(() => {
+    action = new AiGatewayMetric();
+    mockGetMetrics = vi.fn((...args: unknown[]) => Promise.resolve(makeMetrics()));
+    vi.mocked(getGlobalSettings).mockReturnValue({ apiToken: "test-token", accountId: "test-account" });
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    resetPollingCoordinator();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  function lastSvg(ev: ReturnType<typeof makeMockEvent>): string {
+    const calls = ev.action.setImage.mock.calls;
+    return decodeSvg(calls[calls.length - 1][0]);
+  }
+
+  it("should keep each key showing its own gateway after both appear", async () => {
+    const a = makeMockEvent(ALPHA, "key-a");
+    const b = makeMockEvent(BETA, "key-b");
+    await action.onWillAppear(a);
+    await action.onWillAppear(b);
+
+    expect(lastSvg(a)).toContain("alpha-gw");
+    expect(lastSvg(a)).not.toContain("beta-gw");
+    expect(lastSvg(b)).toContain("beta-gw");
+    expect(lastSvg(b)).not.toContain("alpha-gw");
+  });
+
+  it("should refresh every visible key on a coordinator tick", async () => {
+    const a = makeMockEvent(ALPHA, "key-a");
+    const b = makeMockEvent(BETA, "key-b");
+    await action.onWillAppear(a);
+    await action.onWillAppear(b);
+    a.action.setImage.mockClear();
+    b.action.setImage.mockClear();
+    mockGetMetrics.mockClear();
+
+    await getPollingCoordinator().tick();
+
+    expect(mockGetMetrics.mock.calls.map((c) => c[0]).sort()).toEqual(["alpha-gw", "beta-gw"]);
+    expect(lastSvg(a)).toContain("alpha-gw");
+    expect(lastSvg(b)).toContain("beta-gw");
+  });
+
+  it("should redraw a pressed key with its own gateway, not the last fetched one", async () => {
+    const a = makeMockEvent(ALPHA, "key-a");
+    const b = makeMockEvent(BETA, "key-b");
+    await action.onWillAppear(a);
+    await action.onWillAppear(b);
+    a.action.setImage.mockClear();
+
+    await action.onKeyDown(a);
+
+    const svg = lastSvg(a);
+    expect(svg).toContain("alpha-gw");
+    expect(svg).not.toContain("beta-gw");
+  });
+
+  it("should keep refreshing the other key when one key disappears", async () => {
+    const a = makeMockEvent(ALPHA, "key-a");
+    const b = makeMockEvent(BETA, "key-b");
+    await action.onWillAppear(a);
+    await action.onWillAppear(b);
+    action.onWillDisappear(b);
+    a.action.setImage.mockClear();
+    b.action.setImage.mockClear();
+
+    await getPollingCoordinator().tick();
+
+    expect(a.action.setImage).toHaveBeenCalled();
+    expect(b.action.setImage).not.toHaveBeenCalled();
   });
 });
