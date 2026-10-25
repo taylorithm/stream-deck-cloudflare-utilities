@@ -11,11 +11,11 @@ import streamDeck, {
   action,
   DidReceiveSettingsEvent,
   KeyDownEvent,
-  SingletonAction,
   WillAppearEvent,
   WillDisappearEvent,
 } from "@elgato/streamdeck";
 
+import { PerKeyAction } from "./per-key-action";
 import { CloudflareR2Api } from "../services/cloudflare-r2-api";
 import { formatCompactNumber, RateLimitError } from "../services/cloudflare-ai-gateway-api";
 import { formatBytes } from "../services/cloudflare-zone-analytics-api";
@@ -79,8 +79,7 @@ export function formatMetricValue(
   }
 }
 
-@action({ UUID: "com.pedrofuentes.cloudflare-utilities.r2-storage-metric" })
-export class R2StorageMetric extends SingletonAction<R2MetricSettings> {
+export class R2StorageMetricKey {
   private apiClient: CloudflareR2Api | null = null;
   private fetchGeneration = 0;
   private lastMetrics: R2Metrics | null = null;
@@ -97,7 +96,9 @@ export class R2StorageMetric extends SingletonAction<R2MetricSettings> {
   private isErrorState = false;
   private skipUntil = 0;
 
-  override async onWillAppear(ev: WillAppearEvent<R2MetricSettings>): Promise<void> {
+  constructor(private readonly id: string) {}
+
+  async onWillAppear(ev: WillAppearEvent<R2MetricSettings>): Promise<void> {
     this.lastEvent = ev;
     this.subscribeToGlobalSettings();
     this.subscribeToCoordinator();
@@ -132,7 +133,7 @@ export class R2StorageMetric extends SingletonAction<R2MetricSettings> {
     await this.updateMetrics(ev);
   }
 
-  override async onDidReceiveSettings(ev: DidReceiveSettingsEvent<R2MetricSettings>): Promise<void> {
+  async onDidReceiveSettings(ev: DidReceiveSettingsEvent<R2MetricSettings>): Promise<void> {
     this.lastEvent = ev;
 
     const settings = ev.payload.settings;
@@ -194,7 +195,7 @@ export class R2StorageMetric extends SingletonAction<R2MetricSettings> {
     await this.updateMetrics(ev);
   }
 
-  override onWillDisappear(_ev: WillDisappearEvent<R2MetricSettings>): void {
+  onWillDisappear(_ev: WillDisappearEvent<R2MetricSettings>): void {
     if (this.unsubscribeCoordinator) {
       this.unsubscribeCoordinator();
       this.unsubscribeCoordinator = null;
@@ -216,7 +217,7 @@ export class R2StorageMetric extends SingletonAction<R2MetricSettings> {
     }
   }
 
-  override async onKeyDown(ev: KeyDownEvent<R2MetricSettings>): Promise<void> {
+  async onKeyDown(ev: KeyDownEvent<R2MetricSettings>): Promise<void> {
     const settings = ev.payload.settings;
     const global = getGlobalSettings();
 
@@ -305,7 +306,7 @@ export class R2StorageMetric extends SingletonAction<R2MetricSettings> {
 
   private subscribeToCoordinator(): void {
     if (this.unsubscribeCoordinator) return;
-    this.unsubscribeCoordinator = getPollingCoordinator().subscribe("r2-storage-metric", () => this.onCoordinatorTick());
+    this.unsubscribeCoordinator = getPollingCoordinator().subscribe(`r2-storage-metric:${this.id}`, () => this.onCoordinatorTick());
   }
 
   private async onCoordinatorTick(): Promise<void> {
@@ -317,7 +318,7 @@ export class R2StorageMetric extends SingletonAction<R2MetricSettings> {
   private startMarqueeIfNeeded(): void {
     if (this.marquee.needsAnimation() && this.lastMetrics) {
       if (!this.marqueeInterval) {
-        this.marqueeInterval = setInterval(() => this.onMarqueeTick(), R2StorageMetric.MARQUEE_INTERVAL_MS);
+        this.marqueeInterval = setInterval(() => this.onMarqueeTick(), R2StorageMetricKey.MARQUEE_INTERVAL_MS);
       }
     } else {
       this.stopMarqueeTimer();
@@ -358,5 +359,16 @@ export class R2StorageMetric extends SingletonAction<R2MetricSettings> {
       this.apiClient = new CloudflareR2Api(global.apiToken!, global.accountId!);
       await this.updateMetrics(ev);
     });
+  }
+}
+
+/**
+ * R2StorageMetric action. The SDK creates a single instance for all keys of this
+ * type, so events are routed to a {@link R2StorageMetricKey} per key.
+ */
+@action({ UUID: "com.pedrofuentes.cloudflare-utilities.r2-storage-metric" })
+export class R2StorageMetric extends PerKeyAction<R2MetricSettings, R2StorageMetricKey> {
+  protected createHandler(id: string): R2StorageMetricKey {
+    return new R2StorageMetricKey(id);
   }
 }
