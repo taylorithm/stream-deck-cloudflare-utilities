@@ -31,7 +31,7 @@ stream-deck-cloudflare-utilities/
 
 | Layer | Location | Rule |
 |-------|----------|------|
-| Actions | `src/actions/` | Extend `SingletonAction<TSettings>`. UI + event wiring only. May import services. |
+| Actions | `src/actions/` | A `PerKeyAction<TSettings, Handler>` router plus one per-key handler class. UI + event wiring only. May import services. |
 | Services | `src/services/` | Plain classes/functions. **No `@elgato/streamdeck` import** → unit-testable in isolation. |
 | Types | `src/types/` | Shared interfaces + per-action settings/metric enums. No logic. |
 | Entry | `src/plugin.ts` | Registers actions and connects. Kept minimal; excluded from coverage. |
@@ -39,6 +39,15 @@ stream-deck-cloudflare-utilities/
 Shared cross-action services: `key-image-renderer` (SVG → key image), `marquee-controller`
 (scrolling long names), `polling-coordinator` (adaptive polling), `global-settings-store`
 (credentials pub/sub).
+
+### Per-key state
+The SDK creates **one** `SingletonAction` instance per action type, shared by every button of
+that type, so instance fields are shared between buttons. Each action is therefore split in two:
+a per-key handler (`ZoneAnalyticsKey`, ...) that owns all state, timers and its polling
+subscription, and a thin `@action` class extending `PerKeyAction` (`src/actions/per-key-action.ts`)
+that creates a handler per `ev.action.id` and forwards events to it. Handlers subscribe to the
+polling coordinator as `<action>:<id>` and are dropped on `onWillDisappear`. Never add mutable
+fields to the `@action` class itself.
 
 ### UUID convention
 - Plugin: `com.pedrofuentes.cloudflare-utilities`

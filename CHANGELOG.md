@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Changed
 
 ### Fixed
+- Two buttons of the same action type on different resources (for example two Zone Analytics
+  keys on different zones) no longer overwrite each other. Each key now keeps its own data and
+  refreshes on every poll, and one key leaving the screen no longer stops the others refreshing.
 
 ### Removed
 
