@@ -51,6 +51,8 @@ export type ZoneAnalyticsSettings = {
   metric?: ZoneAnalyticsMetricType;
   /** Time range for analytics */
   timeRange?: ZoneAnalyticsTimeRange;
+  /** Key background color (#rrggbb); default dark navy */
+  keyColor?: string;
 };
 
 /**

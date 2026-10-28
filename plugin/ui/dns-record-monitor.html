@@ -166,6 +166,14 @@
       </div>
     </div>
 
+    <div class="sdpi-item">
+      <div class="sdpi-item-label">Key colour</div>
+      <div class="sdpi-item-value" style="display:flex;gap:8px;align-items:center">
+        <input type="color" id="keyColor" value="#0d1117" />
+        <button type="button" id="keyColorReset" class="settings-btn" style="margin:0;width:auto">Reset</button>
+      </div>
+    </div>
+
     <div class="tips">
       <strong>Tip:</strong> Use <strong>@</strong> for the apex record, or just the subdomain
       (e.g. <strong>www</strong>). The full domain name is resolved automatically.<br/>
@@ -250,6 +258,7 @@
       var ACTION_FIELDS = ["recordName", "recordType"];
 
       function populateActionFields() {
+        document.getElementById("keyColor").value = actionSettings.keyColor || "#0d1117";
         ACTION_FIELDS.forEach(function (key) {
           var el = document.getElementById(key);
           if (el) el.value = actionSettings[key] || "";
@@ -261,6 +270,17 @@
           }
         }
       }
+
+      // keyColor is kept out of ACTION_FIELDS: a colour input can't be empty, so it would always save #000000.
+      var keyColorEl = document.getElementById("keyColor");
+      function setKeyColor(v) {
+        if (v) actionSettings.keyColor = v; else delete actionSettings.keyColor;
+        saveActionSettings();
+      }
+      keyColorEl.addEventListener("input", function () { setKeyColor(keyColorEl.value); });
+      document.getElementById("keyColorReset").addEventListener("click", function () {
+        keyColorEl.value = "#0d1117"; setKeyColor("");
+      });
 
       function saveActionSettings() {
         ACTION_FIELDS.forEach(function (key) {

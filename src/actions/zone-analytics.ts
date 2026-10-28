@@ -197,7 +197,8 @@ export class ZoneAnalyticsKey {
           this.lastZoneName ?? this.lastZoneId ?? "",
           this.lastMetrics,
           settings.timeRange,
-          this.marquee.getCurrentText()
+          this.marquee.getCurrentText(),
+          settings.keyColor
         )
       );
       this.startMarqueeIfNeeded();
@@ -269,7 +270,8 @@ export class ZoneAnalyticsKey {
           this.lastZoneName ?? this.lastZoneId ?? "",
           this.lastMetrics,
           settings.timeRange,
-          this.marquee.getCurrentText()
+          this.marquee.getCurrentText(),
+          settings.keyColor
         )
       );
       this.startMarqueeIfNeeded();
@@ -310,7 +312,8 @@ export class ZoneAnalyticsKey {
           settings.zoneName ?? settings.zoneId ?? "",
           metrics,
           timeRange,
-          this.marquee.getCurrentText()
+          this.marquee.getCurrentText(),
+          settings.keyColor
         )
       );
       this.startMarqueeIfNeeded();
@@ -352,7 +355,8 @@ export class ZoneAnalyticsKey {
     zoneName: string,
     metrics: ZoneAnalyticsMetrics,
     timeRange?: string,
-    displayName?: string
+    displayName?: string,
+    bgColor?: string
   ): string {
     const name = displayName ?? truncateZoneName(zoneName);
     const value = formatMetricValue(metric, metrics);
@@ -365,6 +369,7 @@ export class ZoneAnalyticsKey {
       line2: truncateForDisplay(value, LINE2_MAX_CHARS),
       line3: truncateForDisplay(label, LINE3_MAX_CHARS),
       statusColor: color,
+      bgColor,
     });
   }
 
@@ -430,7 +435,8 @@ export class ZoneAnalyticsKey {
         this.lastZoneId ?? "",
         this.lastMetrics,
         timeRange,
-        displayName
+        displayName,
+        this.lastEvent.payload.settings.keyColor
       )
     );
   }

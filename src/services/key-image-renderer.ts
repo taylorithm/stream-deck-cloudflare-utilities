@@ -148,7 +148,7 @@ export type KeyImageOptions = {
  * making the status indicator far more visible on a tiny OLED screen.
  */
 export function renderKeyImage(options: KeyImageOptions): string {
-  const bg = options.bgColor ?? BG_COLOR;
+  const bg = /^#[0-9a-f]{6}$/i.test(options.bgColor ?? "") ? options.bgColor : BG_COLOR;
   const line1 = options.line1 ? escapeXml(options.line1) : "";
   const line2 = escapeXml(options.line2);
   const line3 = options.line3 ? escapeXml(options.line3) : "";

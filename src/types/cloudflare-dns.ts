@@ -18,6 +18,8 @@ export type DnsRecordSettings = {
   recordName?: string;
   /** DNS record type filter (e.g. "A", "AAAA", "CNAME") */
   recordType?: string;
+  /** Key background color (#rrggbb); default dark navy */
+  keyColor?: string;
 };
 
 /**

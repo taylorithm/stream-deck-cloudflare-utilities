@@ -164,7 +164,7 @@ export class DnsRecordMonitorKey {
         : `${record.type} record`;
       this.marqueeDetail.setText(detailText);
 
-      await ev.action.setImage(this.renderRecord(record));
+      await ev.action.setImage(this.renderRecord(record, settings.keyColor));
       this.startMarqueeIfNeeded();
     } catch (error) {
       this.isErrorState = true;
@@ -192,7 +192,7 @@ export class DnsRecordMonitorKey {
     }
   }
 
-  public renderRecord(record: DnsRecordStatus): string {
+  public renderRecord(record: DnsRecordStatus, bgColor?: string): string {
     const name = this.marqueeName.needsAnimation()
       ? this.marqueeName.getCurrentText()
       : truncateDomainName(record.name);
@@ -203,6 +203,7 @@ export class DnsRecordMonitorKey {
         line2: "MISSING",
         line3: `${record.type} record`,
         statusColor: STATUS_COLORS.red,
+        bgColor,
       });
     }
 
@@ -223,6 +224,7 @@ export class DnsRecordMonitorKey {
       line2: content,
       line3: detail,
       statusColor: color,
+      bgColor,
     });
   }
 
@@ -286,7 +288,7 @@ export class DnsRecordMonitorKey {
     if ((!c1 && !c2 && !c3) || !this.lastRecord || !this.lastEvent) return;
 
     await this.lastEvent.action.setImage(
-      this.renderRecord(this.lastRecord)
+      this.renderRecord(this.lastRecord, this.lastEvent.payload.settings.keyColor)
     );
   }
 
